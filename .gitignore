@@ -1,0 +1,9 @@
+*.pyc
+/*.egg-info/
+/venv/
+/sandbox/
+/build/
+/dist/
+/.tox/
+/.cache/
+/.pytest/
