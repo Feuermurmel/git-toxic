@@ -17,8 +17,6 @@ def id_to_invisible(commit_id: str):
 	return ''.join(invisible_characters[int(i)] for i in bits[:30])
 
 
-
-
 async def run_tox(dir):
 	result = await command('tox', cwd = dir, use_stdout = True, allow_error = True)
 
@@ -81,8 +79,8 @@ class Toxic:
 		self._success_tag = success_tag
 		self._failure_tag = failure_tag
 
-		self._tag_refs = set()
-		self._tagged_commit_ids = set()
+		# Ref name to commit IDs.
+		self._tagged_commits_by_name = { }
 		self._commits_by_commit_ids = { }
 		self._trees_by_tree_ids = { }
 
@@ -102,29 +100,39 @@ class Toxic:
 		while True:
 			name = prefix + ''.join(random.choice(invisible_characters) for _ in range(30))
 
-			if name not in self._tag_refs:
+			if name not in self._tagged_commits_by_name:
 				return name
 
-	async def _check_refs(self):
+	async def _get_revs(self):
 		revs = set()
 
 		for k, v in (await self._repository.show_ref()).items():
 			if k[-1] not in invisible_characters:
 				revs.update(await self._repository.rev_list(k, max_count = 5))
 
-		for i in revs:
-			if i not in self._tagged_commit_ids:
-				print(i)
+		return revs
 
-				tree_id = await self._get_commit(i).get_tree_id()
-				result = await self._get_tree(tree_id).get_tox_result()
-				prefix = self._success_tag if result.success else self._failure_tag
-				name = self._find_unused_tag_ref('refs/tags/' + prefix)
+	async def _check_refs(self):
+		revs = await self._get_revs()
 
-				await self._repository.update_ref(name, i)
+		for i in revs - set(self._tagged_commits_by_name.values()):
+			print(i)
 
-				self._tag_refs.add(name)
-				self._tagged_commit_ids.add(i)
+			tree_id = await self._get_commit(i).get_tree_id()
+			result = await self._get_tree(tree_id).get_tox_result()
+			prefix = self._success_tag if result.success else self._failure_tag
+			name = self._find_unused_tag_ref('refs/tags/' + prefix)
+
+			await self._repository.update_ref(name, i)
+
+			self._tagged_commits_by_name[name] = i
+
+		for k, v in list(self._tagged_commits_by_name.items()):
+			if v not in revs:
+				print('removing', k, '->', v)
+
+				await self._repository.delete_ref(k)
+				del self._tagged_commits_by_name[k]
 
 	async def _read_existing_tags(self):
 		for k, v in (await self._repository.show_ref()).items():
@@ -134,8 +142,7 @@ class Toxic:
 
 				tree.set_tox_result(ToxResult(success))
 
-				self._tag_refs.add(k)
-				self._tagged_commit_ids.add(v)
+				self._tagged_commits_by_name[k] = v
 
 	async def run(self):
 		await self._read_existing_tags()
@@ -143,5 +150,6 @@ class Toxic:
 		async with DirWatcher(os.path.join(self._repository.path, 'refs')) as watcher:
 			while True:
 				print(os.path.join(self._repository.path, 'refs'))
+
 				await self._check_refs()
 				await watcher()

@@ -54,6 +54,9 @@ class Repository:
 	async def update_ref(self, name, commit_id):
 		await self._command('update-ref', name, commit_id)
 
+	async def delete_ref(self, name):
+		await self._command('update-ref', '-d', name)
+
 	async def export_to_dir(self, commit_id, dir):
 		# # print(' '.join([*self._command_args_prefix(), 'archive', commit_id]))
 		# git_process = await create_subprocess_exec(*self._command_args_prefix(), 'archive', commit_id, stdout = PIPE)
