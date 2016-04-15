@@ -1,11 +1,10 @@
-import asyncio
-
-import sys
+from argparse import ArgumentParser
+from asyncio.events import get_event_loop
 from contextlib import closing
 
 from git_toxic.git import Repository
-from git_toxic.toxic import Commit, Toxic
-from git_toxic.util import command, command_lines
+from git_toxic.toxic import Toxic
+
 
 yes = chr(0x1f3Be) # Tennis ball
 no = chr(0x274c) # Red cross mark
@@ -13,31 +12,24 @@ colon = chr(0xa789)
 space = chr(0xa0)
 
 
-async def main():
+def parse_args():
+	parser = ArgumentParser()
+
+	parser.add_argument('--clear', action = 'store_true')
+
+	return parser.parse_args()
+
+
+async def main(clear: bool):
 	repository = await Repository.from_cwd()
+	toxic = Toxic(repository, yes, no, 5)
 
-
-	await Toxic(repository, yes, no).run()
-
-	# commits = [Commit(repository, i) for i in await repository.rev_list()]
-
-	# for i in commits:
-	# 	print(await i.get_tree_id())
-
-		# # success = repository.run_tox(i)
-		# success = False
-		# symbol = yes if success else no
-		#
-		# name = 'refs/tags/t{}{}{}{}'.format(colon, space, symbol, id_to_invisible(i))
-		# # print(repr(name))
-		#
-		# # await repository.update_ref(name, i)
-		#
-		# # print(await repository.get_commit_info(i))
-		#
-		# print(i, (await repository.get_commit_info(i))['tree'])
+	if clear:
+		await toxic.clear_labels()
+	else:
+		await toxic.run()
 
 
 def script_main():
-	with closing(asyncio.get_event_loop()) as loop:
-		loop.run_until_complete(main(*sys.argv[1:]))
+	with closing(get_event_loop()) as loop:
+		loop.run_until_complete(main(**vars(parse_args())))

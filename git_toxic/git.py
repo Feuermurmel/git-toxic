@@ -58,21 +58,6 @@ class Repository:
 		await self._command('update-ref', '-d', name)
 
 	async def export_to_dir(self, commit_id, dir):
-		# # print(' '.join([*self._command_args_prefix(), 'archive', commit_id]))
-		# git_process = await create_subprocess_exec(*self._command_args_prefix(), 'archive', commit_id, stdout = PIPE)
-		#
-		# tar_stdin = os.fdopen(git_process.stdout._transport._fileno)
-		#
-		# print(tar_stdin.read())
-		# # tar_process = await create_subprocess_exec('tar', '-x', '-C', dir, stdin = tar_stdin)
-		# tar_process = await create_subprocess_exec('wc', stdin = tar_stdin)
-		#
-		# await git_process.wait()
-		# await tar_process.wait()
-		#
-		# assert not git_process.returncode
-		# assert not tar_process.returncode
-
 		git_process = Popen([*self._command_args_prefix(), 'archive', commit_id], stdout = PIPE)
 		tar_process = Popen(['tar', '-x', '-C', dir], stdin = git_process.stdout)
 

@@ -11,10 +11,8 @@ from git_toxic.git import Repository
 invisible_characters = [chr(0x200b), chr(0x2063)]
 
 
-def id_to_invisible(commit_id: str):
-	bits = '{:0160b}'.format(int(commit_id, 16))
-
-	return ''.join(invisible_characters[int(i)] for i in bits[:30])
+def _is_label(ref):
+	return ref[-1] in invisible_characters
 
 
 async def run_tox(dir):
@@ -66,6 +64,8 @@ class Tree:
 	async def get_tox_result(self):
 		if self._tox_result_future is None:
 			async def get():
+				print('tox:', self.tree_id)
+
 				return await run_tox_on_tree(self.repository, self.tree_id)
 
 			self._tox_result_future = ensure_future(get())
@@ -74,15 +74,17 @@ class Tree:
 
 
 class Toxic:
-	def __init__(self, repository: Repository, success_tag, failure_tag):
+	def __init__(self, repository: Repository, success_tag, failure_tag, max_distance):
 		self._repository = repository
 		self._success_tag = success_tag
 		self._failure_tag = failure_tag
+		self._max_distance = max_distance
 
-		# Ref name to commit IDs.
-		self._tagged_commits_by_name = { }
 		self._commits_by_commit_ids = { }
 		self._trees_by_tree_ids = { }
+
+		self._commit_ids_by_label = { }
+		self._labels_by_commit_id = { }
 
 	def _get_commit(self, commit_id):
 		if commit_id not in self._commits_by_commit_ids:
@@ -96,60 +98,90 @@ class Toxic:
 
 		return self._trees_by_tree_ids[tree_id]
 
-	def _find_unused_tag_ref(self, prefix):
+	def _find_unused_label(self, prefix):
 		while True:
 			name = prefix + ''.join(random.choice(invisible_characters) for _ in range(30))
 
-			if name not in self._tagged_commits_by_name:
+			if name not in self._commit_ids_by_label:
 				return name
 
-	async def _get_revs(self):
-		revs = set()
+	async def _get_refs(self):
+		refs = await self._repository.show_ref()
 
-		for k, v in (await self._repository.show_ref()).items():
-			if k[-1] not in invisible_characters:
-				revs.update(await self._repository.rev_list(k, max_count = 5))
+		return [v for k, v in refs.items() if not _is_label(k)]
 
-		return revs
+	async def _get_reachable_commits(self):
+		"""
+		Collects all commits reachable from any refs which are not created by this application.
+
+		Returns a dict from commit ID to distance, where distance is the distance to the nearest child to which a ref points.
+		"""
+		res = { }
+
+		for i in await self._get_refs():
+			for j, x in enumerate(await self._repository.rev_list(i)):
+				distance = res.get(x)
+
+				if distance is None or distance > j:
+					res[x] = j
+
+		return res
+
+	async def _set_label(self, commit_id, prefix):
+		label = self._find_unused_label('refs/tags/' + prefix)
+
+		await self._repository.update_ref(label, commit_id)
+		self._commit_ids_by_label[label] = commit_id
+		self._labels_by_commit_id[commit_id] = label
+
+	async def _remove_label(self, commit_id):
+		label = self._labels_by_commit_id[commit_id]
+
+		await self._repository.delete_ref(label)
+		del self._commit_ids_by_label[label]
+		del self._labels_by_commit_id[commit_id]
 
 	async def _check_refs(self):
-		revs = await self._get_revs()
+		distances_by_commit_id = await self._get_reachable_commits()
+		commits_to_label = [(v, k) for k, v in distances_by_commit_id.items() if k not in self._labels_by_commit_id and v < self._max_distance]
 
-		for i in revs - set(self._tagged_commits_by_name.values()):
-			print(i)
-
-			tree_id = await self._get_commit(i).get_tree_id()
+		for _, k in sorted(commits_to_label):
+			tree_id = await self._get_commit(k).get_tree_id()
 			result = await self._get_tree(tree_id).get_tox_result()
 			prefix = self._success_tag if result.success else self._failure_tag
-			name = self._find_unused_tag_ref('refs/tags/' + prefix)
 
-			await self._repository.update_ref(name, i)
+			await self._set_label(k, prefix)
 
-			self._tagged_commits_by_name[name] = i
+		for i in list(self._labels_by_commit_id):
+			if i not in distances_by_commit_id:
+				await self._remove_label(i)
 
-		for k, v in list(self._tagged_commits_by_name.items()):
-			if v not in revs:
-				print('removing', k, '->', v)
+	async def _read_existing_labels(self):
+		refs = await self._repository.show_ref()
 
-				await self._repository.delete_ref(k)
-				del self._tagged_commits_by_name[k]
-
-	async def _read_existing_tags(self):
-		for k, v in (await self._repository.show_ref()).items():
-			if k[-1] in invisible_characters:
+		for k, v in refs.items():
+			if _is_label(k):
 				tree = self._get_tree(await self._get_commit(v).get_tree_id())
 				success = k.startswith(self._success_tag)
 
 				tree.set_tox_result(ToxResult(success))
 
-				self._tagged_commits_by_name[k] = v
+				self._commit_ids_by_label[k] = v
+				self._labels_by_commit_id[v] = k
 
 	async def run(self):
-		await self._read_existing_tags()
+		"""
+		Reads existing tags and keeps them updated when refs change.
+		"""
+		await self._read_existing_labels()
 
 		async with DirWatcher(os.path.join(self._repository.path, 'refs')) as watcher:
 			while True:
-				print(os.path.join(self._repository.path, 'refs'))
-
 				await self._check_refs()
 				await watcher()
+
+	async def clear_labels(self):
+		await self._read_existing_labels()
+
+		for i in list(self._labels_by_commit_id):
+			await self._remove_label(i)
