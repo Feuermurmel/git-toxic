@@ -106,13 +106,13 @@ class Toxic:
 				return name
 
 	async def _check_refs(self):
-		refs = await self._repository.show_ref()
-		head_revs = [v for k, v in refs.items() if k[-1] not in invisible_characters]
+		revs = set()
 
-		def iter_revs():
-			*head_revs
+		for k, v in (await self._repository.show_ref()).items():
+			if k[-1] not in invisible_characters:
+				revs.update(await self._repository.rev_list(k, max_count = 5))
 
-		for i in await self._repository.rev_list(*head_revs):
+		for i in revs:
 			if i not in self._tagged_commit_ids:
 				print(i)
 
