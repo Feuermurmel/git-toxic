@@ -1,6 +1,9 @@
 import os
 import random
 from asyncio import ensure_future, Future
+from collections import UserDict
+from enum import Enum
+from json import loads, dumps
 from tempfile import TemporaryDirectory
 
 from git_toxic.util import command, DirWatcher
@@ -8,29 +11,13 @@ from git_toxic.git import Repository
 
 
 # It was actually really hard to find those characters! They had to be rendered as zero-width space in a GUI application, not produce a line-break, be considered different from each other by HFS, not normalize to the empty string and not considered a white-space character by git.
-invisible_characters = [chr(0x200b), chr(0x2063)]
+_invisible_characters = [chr(0x200b), chr(0x2063)]
+
+_tox_state_file_path = 'toxic/results.json'
 
 
 def _is_label(ref):
-	return ref[-1] in invisible_characters
-
-
-async def run_tox(dir):
-	result = await command('tox', cwd = dir, use_stdout = True, allow_error = True)
-
-	return result.code == 0
-
-
-async def run_tox_on_tree(repository, tree_id):
-	with TemporaryDirectory() as temp_dir:
-		await repository.export_to_dir(tree_id, temp_dir)
-
-		return ToxResult(await run_tox(temp_dir))
-
-
-class ToxResult:
-	def __init__(self, success: bool):
-		self.success = success
+	return ref[-1] in _invisible_characters
 
 
 class Commit:
@@ -51,58 +38,82 @@ class Commit:
 		return await self._tree_id_future
 
 
+class TreeState(Enum):
+	pending = 'pending'
+	success = 'success'
+	failure = 'failure'
+
+
 class Tree:
 	def __init__(self, repository: Repository, tree_id):
 		self.repository = repository
 		self.tree_id = tree_id
 		self._tox_result_future = None
 
+	async def _run_tox(self):
+		with TemporaryDirectory() as temp_dir:
+			await self.repository.export_to_dir(self.tree_id, temp_dir)
+
+			result = await command(
+				'tox',
+				cwd = temp_dir,
+				allow_error = True)
+
+			return [TreeState.success, TreeState.failure][bool(result.code)]
+
+	def _get_result_future(self):
+		if self._tox_result_future is None:
+			self._tox_result_future = ensure_future(self._run_tox())
+
+		return self._tox_result_future
+
 	def set_tox_result(self, result):
 		self._tox_result_future = Future()
 		self._tox_result_future.set_result(result)
 
-	async def get_tox_result(self):
-		if self._tox_result_future is None:
-			async def get():
-				print('tox:', self.tree_id)
+	def get_result_if_available(self):
+		future = self._tox_result_future
 
-				return await run_tox_on_tree(self.repository, self.tree_id)
+		if future is not None and future.done():
+			return future.result()
+		else:
+			return TreeState.pending
 
-			self._tox_result_future = ensure_future(get())
+	async def get_result(self):
+		return await self._get_result_future()
 
-		return await self._tox_result_future
+
+class DefaultDict(UserDict):
+	def __init__(self, value_fn):
+		super().__init__()
+
+		self._value_fn = value_fn
+
+	def __missing__(self, key):
+		value = self._value_fn(key)
+
+		self[key] = value
+
+		return value
 
 
 class Toxic:
-	def __init__(self, repository: Repository, success_tag, failure_tag, max_distance):
+	def __init__(self, repository: Repository, labels_by_state: dict, max_distance):
 		self._repository = repository
-		self._success_tag = success_tag
-		self._failure_tag = failure_tag
+		self._labels_by_state = labels_by_state
 		self._max_distance = max_distance
 
-		self._commits_by_commit_ids = { }
-		self._trees_by_tree_ids = { }
+		self._commits_by_id = DefaultDict(lambda k: Commit(self._repository, k))
+		self._trees_by_id = DefaultDict(lambda k: Tree(self._repository, k))
 
-		self._commit_ids_by_label = { }
-		self._labels_by_commit_id = { }
+		self._label_refs = set()
+		self._state_by_commit_id = { }
 
-	def _get_commit(self, commit_id):
-		if commit_id not in self._commits_by_commit_ids:
-			self._commits_by_commit_ids[commit_id] = Commit(self._repository, commit_id)
-
-		return self._commits_by_commit_ids[commit_id]
-
-	def _get_tree(self, tree_id):
-		if tree_id not in self._trees_by_tree_ids:
-			self._trees_by_tree_ids[tree_id] = Tree(self._repository, tree_id)
-
-		return self._trees_by_tree_ids[tree_id]
-
-	def _find_unused_label(self, prefix):
+	def _find_unused_ref(self, prefix):
 		while True:
-			name = prefix + ''.join(random.choice(invisible_characters) for _ in range(30))
+			name = prefix + ''.join((random.choice(_invisible_characters) for _ in range(30)))
 
-			if name not in self._commit_ids_by_label:
+			if name not in self._label_refs:
 				return name
 
 	async def _get_refs(self):
@@ -127,53 +138,76 @@ class Toxic:
 
 		return res
 
-	async def _set_label(self, commit_id, prefix):
-		label = self._find_unused_label('refs/tags/' + prefix)
+	async def _set_label(self, commit_id, state):
+		label = self._labels_by_state[state]
+		current_label, current_ref = self._state_by_commit_id.get(commit_id, (None, None))
 
-		await self._repository.update_ref(label, commit_id)
-		self._commit_ids_by_label[label] = commit_id
-		self._labels_by_commit_id[commit_id] = label
+		if current_label != label:
+			if current_ref is not None:
+				await self._repository.delete_ref(current_ref)
+				self._label_refs.remove(current_ref)
 
-	async def _remove_label(self, commit_id):
-		label = self._labels_by_commit_id[commit_id]
+			if label is None:
+				del self._state_by_commit_id[commit_id]
+			else:
+				ref = self._find_unused_ref('refs/tags/' + label)
 
-		await self._repository.delete_ref(label)
-		del self._commit_ids_by_label[label]
-		del self._labels_by_commit_id[commit_id]
+				await self._repository.update_ref(ref, commit_id)
+				self._label_refs.add(ref)
+				self._state_by_commit_id[commit_id] = label, ref
 
 	async def _check_refs(self):
 		distances_by_commit_id = await self._get_reachable_commits()
-		commits_to_label = [(v, k) for k, v in distances_by_commit_id.items() if k not in self._labels_by_commit_id and v < self._max_distance]
+		commits_to_label = sorted((k for k, v in distances_by_commit_id.items() if v < self._max_distance), key = distances_by_commit_id.get)
 
-		for _, k in sorted(commits_to_label):
-			tree_id = await self._get_commit(k).get_tree_id()
-			result = await self._get_tree(tree_id).get_tox_result()
-			prefix = self._success_tag if result.success else self._failure_tag
+		async def get_available_state(tree):
+			return tree.get_result_if_available()
 
-			await self._set_label(k, prefix)
+		async def get_state(tree):
+			result = await tree.get_result()
 
-		for i in list(self._labels_by_commit_id):
-			if i not in distances_by_commit_id:
-				await self._remove_label(i)
+			self._write_tox_results()
 
-	async def _read_existing_labels(self):
-		refs = await self._repository.show_ref()
+			return result
 
-		for k, v in refs.items():
-			if _is_label(k):
-				tree = self._get_tree(await self._get_commit(v).get_tree_id())
-				success = k.startswith(self._success_tag)
+		for fn in get_available_state, get_state:
+			for i in commits_to_label:
+				tree_id = await self._commits_by_id[i].get_tree_id()
+				state = await fn(self._trees_by_id[tree_id])
 
-				tree.set_tox_result(ToxResult(success))
+				await self._set_label(i, state)
 
-				self._commit_ids_by_label[k] = v
-				self._labels_by_commit_id[v] = k
+	def _read_tox_results(self):
+		try:
+			data = loads(self._repository.read_file(_tox_state_file_path))
+		except FileNotFoundError:
+			return
+
+		for i in data:
+			tree = self._trees_by_id[i['tree_id']]
+			state = TreeState(i['state'])
+
+			tree.set_tox_result(state)
+
+	def _write_tox_results(self):
+		def iter_data():
+			for k, v in self._trees_by_id.items():
+				state = v.get_result_if_available()
+
+				if state != TreeState.pending:
+					yield dict(tree_id = k, state = state.value)
+
+		data = dumps(list(iter_data()))
+
+		self._repository.write_file(_tox_state_file_path, data)
 
 	async def run(self):
 		"""
 		Reads existing tags and keeps them updated when refs change.
 		"""
-		await self._read_existing_labels()
+		await self.clear_labels()
+
+		self._read_tox_results()
 
 		async with DirWatcher(os.path.join(self._repository.path, 'refs')) as watcher:
 			while True:
@@ -181,7 +215,6 @@ class Toxic:
 				await watcher()
 
 	async def clear_labels(self):
-		await self._read_existing_labels()
-
-		for i in list(self._labels_by_commit_id):
-			await self._remove_label(i)
+		for i in await self._repository.show_ref():
+			if _is_label(i):
+				await self._repository.delete_ref(i)

@@ -1,9 +1,9 @@
 import os
-from asyncio.subprocess import create_subprocess_exec, PIPE
+from asyncio.subprocess import PIPE
 
 from subprocess import Popen
 
-from git_toxic.util import command, command_lines
+from git_toxic.util import command, command_lines, read_file, write_file
 
 
 class Repository:
@@ -66,6 +66,12 @@ class Repository:
 
 		assert not git_process.returncode
 		assert not tar_process.returncode
+
+	def read_file(self, path):
+		return read_file(os.path.join(self.path, path))
+
+	def write_file(self, path, content):
+		return write_file(os.path.join(self.path, path), content)
 
 	@classmethod
 	async def from_dir(cls, path):

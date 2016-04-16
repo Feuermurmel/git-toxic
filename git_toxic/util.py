@@ -1,5 +1,27 @@
+import os
 from asyncio import Event, create_subprocess_exec, ensure_future
 from asyncio.subprocess import PIPE
+
+import sys
+
+
+def read_file(path):
+	with open(path, 'r', encoding = 'utf-8') as file:
+		return file.read()
+
+
+def write_file(path, content: str):
+	temp_path = path + '~'
+	dir_path = os.path.dirname(path)
+
+	if not os.path.exists(dir_path):
+		os.makedirs(dir_path)
+
+	with open(temp_path, 'w', encoding = 'utf-8') as file:
+		file.write(content)
+		os.fsync(file.fileno())
+
+	os.rename(temp_path, path)
 
 
 class CommandResult:
@@ -13,12 +35,12 @@ async def command(*args, use_stdout = False, use_stderr = False, allow_error = F
 	if use_stdout:
 		stdout = PIPE
 	else:
-		stdout = None
+		stdout = sys.stdout
 
 	if use_stderr:
 		stderr = PIPE
 	else:
-		stderr = None
+		stderr = sys.stderr
 
 	process = await create_subprocess_exec(*args, stdout = stdout, stderr = stderr, cwd = cwd)
 	out, err = await process.communicate()
