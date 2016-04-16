@@ -80,7 +80,7 @@ class DirWatcher:
 
 		event = Event()
 
-		self._process = await create_subprocess_exec('fsevents', '-b', '-l', '0', self._dir, stdout = PIPE)
+		self._process = await create_subprocess_exec('fsevents', '-b', self._dir, stdout = PIPE)
 		self._target_future = ensure_future(target())
 
 		return watcher
