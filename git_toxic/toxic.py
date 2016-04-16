@@ -6,7 +6,7 @@ from enum import Enum
 from json import loads, dumps
 from tempfile import TemporaryDirectory
 
-from git_toxic.util import command, DirWatcher
+from git_toxic.util import command, DirWatcher, log
 from git_toxic.git import Repository
 
 
@@ -50,8 +50,10 @@ class Tree:
 		self.tree_id = tree_id
 		self._tox_result_future = None
 
-	async def _run_tox(self):
+	async def _run_tox(self, commit_id_hint):
 		with TemporaryDirectory() as temp_dir:
+			log('Running tox for commit {} ...'.format(commit_id_hint[:7]))
+
 			await self.repository.export_to_dir(self.tree_id, temp_dir)
 
 			result = await command(
@@ -60,12 +62,6 @@ class Tree:
 				allow_error = True)
 
 			return [TreeState.success, TreeState.failure][bool(result.code)]
-
-	def _get_result_future(self):
-		if self._tox_result_future is None:
-			self._tox_result_future = ensure_future(self._run_tox())
-
-		return self._tox_result_future
 
 	def set_tox_result(self, result):
 		self._tox_result_future = Future()
@@ -79,8 +75,11 @@ class Tree:
 		else:
 			return TreeState.pending
 
-	async def get_result(self):
-		return await self._get_result_future()
+	async def get_result(self, commit_id_hint):
+		if self._tox_result_future is None:
+			self._tox_result_future = ensure_future(self._run_tox(commit_id_hint))
+
+		return await self._tox_result_future
 
 
 class DefaultDict(UserDict):
@@ -143,6 +142,11 @@ class Toxic:
 		current_label, current_ref = self._state_by_commit_id.get(commit_id, (None, None))
 
 		if current_label != label:
+			if label is None:
+				log('Removing label of commit.', commit_id[:7])
+			else:
+				log('Setting label of commit {} to {}.', commit_id[:7], label)
+
 			if current_ref is not None:
 				await self._repository.delete_ref(current_ref)
 				self._label_refs.remove(current_ref)
@@ -157,14 +161,16 @@ class Toxic:
 				self._state_by_commit_id[commit_id] = label, ref
 
 	async def _check_refs(self):
+		log('Reading refs ...')
+
 		distances_by_commit_id = await self._get_reachable_commits()
 		commits_to_label = sorted((k for k, v in distances_by_commit_id.items() if v < self._max_distance), key = distances_by_commit_id.get)
 
-		async def get_available_state(tree):
+		async def get_available_state(tree, _commit_id_hint):
 			return tree.get_result_if_available()
 
-		async def get_state(tree):
-			result = await tree.get_result()
+		async def get_state(tree, commit_id_hint):
+			result = await tree.get_result(commit_id_hint)
 
 			self._write_tox_results()
 
@@ -173,7 +179,7 @@ class Toxic:
 		for fn in get_available_state, get_state:
 			for i in commits_to_label:
 				tree_id = await self._commits_by_id[i].get_tree_id()
-				state = await fn(self._trees_by_id[tree_id])
+				state = await fn(self._trees_by_id[tree_id], i)
 
 				await self._set_label(i, state)
 
@@ -209,6 +215,9 @@ class Toxic:
 		"""
 		Reads existing tags and keeps them updated when refs change.
 		"""
+
+		log('Initializing ...')
+
 		await self.clear_labels()
 
 		self._read_tox_results()
