@@ -139,7 +139,7 @@ class Toxic:
 		return res
 
 	async def _set_label(self, commit_id, state):
-		label = self._labels_by_state[state]
+		label = None if state is None else self._labels_by_state[state]
 		current_label, current_ref = self._state_by_commit_id.get(commit_id, (None, None))
 
 		if current_label != label:
@@ -176,6 +176,10 @@ class Toxic:
 				state = await fn(self._trees_by_id[tree_id])
 
 				await self._set_label(i, state)
+
+		for i in list(self._state_by_commit_id):
+			if i not in distances_by_commit_id:
+				await self._set_label(i, None)
 
 	def _read_tox_results(self):
 		try:
