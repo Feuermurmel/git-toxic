@@ -57,6 +57,16 @@ class Repository:
 	async def delete_ref(self, name):
 		await self._command('update-ref', '-d', name)
 
+	async def read_config(self, name, default = None):
+		result = await self._command_lines('config', name, allow_error = True)
+
+		if result:
+			value, = result
+
+			return value
+		else:
+			return default
+
 	async def export_to_dir(self, commit_id, dir):
 		git_process = Popen([*self._command_args_prefix(), 'archive', commit_id], stdout = PIPE)
 		tar_process = Popen(['tar', '-x', '-C', dir], stdin = git_process.stdout)

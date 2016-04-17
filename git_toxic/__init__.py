@@ -3,7 +3,7 @@ from asyncio.events import get_event_loop
 from contextlib import closing
 
 from git_toxic.git import Repository
-from git_toxic.toxic import Toxic, TreeState
+from git_toxic.toxic import Toxic, TreeState, Settings
 
 
 yes = chr(0x1f3Be) # Tennis ball
@@ -25,14 +25,28 @@ def parse_args():
 	return parser.parse_args()
 
 
-async def main(clear: bool):
-	labels = {
-		TreeState.pending: dots,
-		TreeState.success: check_mark,
-		TreeState.failure: cross_mark }
+async def read_settings(repository: Repository):
+	async def read_label(state, default):
+		value = await repository.read_config('toxic.label-' + state, default)
 
+		if value:
+			return value
+		else:
+			return None
+
+	return Settings(
+		labels_by_state = {
+			TreeState.pending: await read_label('pending', dots),
+			TreeState.success: await read_label('success', check_mark),
+			TreeState.failure: await read_label('failure', cross_mark) },
+		max_distance = int(await repository.read_config('toxic.max-distance', 5)),
+		command = await repository.read_config('toxic.command', 'tox'))
+
+
+async def main(clear: bool):
 	repository = await Repository.from_cwd()
-	toxic = Toxic(repository, labels, 5)
+	settings = await read_settings(repository)
+	toxic = Toxic(repository, settings)
 
 	if clear:
 		await toxic.clear_labels()
