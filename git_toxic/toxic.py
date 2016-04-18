@@ -152,7 +152,7 @@ class Toxic:
 
 		if current_label != label:
 			if label is None:
-				log('Removing label of commit.', commit_id[:7])
+				log('Removing label from commit {}.', commit_id[:7])
 			else:
 				log('Setting label of commit {} to {}.', commit_id[:7], label)
 
