@@ -1,8 +1,5 @@
 import os
-from asyncio.subprocess import PIPE
-
-from subprocess import Popen
-
+from subprocess import Popen, PIPE
 from git_toxic.util import command, command_lines, read_file, write_file
 
 

@@ -1,8 +1,8 @@
+import sys
 import os
+from contextlib import contextmanager
 from asyncio import Event, create_subprocess_exec, ensure_future
 from asyncio.subprocess import PIPE
-
-import sys
 
 
 def log(message, *args):
@@ -89,3 +89,13 @@ class DirWatcher:
 		self._target_future.cancel()
 		self._process.kill()
 		await self._process.wait()
+
+
+@contextmanager
+def background_task(fn):
+	task = ensure_future(fn())
+
+	try:
+		yield task
+	finally:
+		task.cancel()
