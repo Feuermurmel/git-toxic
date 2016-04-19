@@ -216,6 +216,7 @@ class Toxic:
 		with background_task(dir_watch_task):
 			while True:
 				await self._check_refs()
+				self._write_tox_results()
 
 				await self._update_labels_event.wait()
 				self._update_labels_event.clear()
