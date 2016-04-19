@@ -169,8 +169,13 @@ class Toxic:
 				future = ensure_future(self._run_tox(tree_id, i))
 
 				self._result_futures_by_commit_id[tree_id] = future
-			elif future.done():
-				await self._set_label(i, future.result())
+
+			if future.done():
+				state = future.result()
+			else:
+				state = TreeState.pending
+
+			await self._set_label(i, state)
 
 		for i in set(self._state_by_commit_id) - set(distances_by_commit_id):
 			await self._set_label(i, None)
