@@ -41,7 +41,7 @@ async def read_settings(repository: Repository):
 			TreeState.failure: await read_label('failure', cross_mark) },
 		max_distance = int(await repository.read_config('toxic.max-distance', 5)),
 		command = await repository.read_config('toxic.command', 'tox'),
-		max_tasks = int(await repository.read_config('toxic.max-tasks', '4')))
+		max_tasks = int(await repository.read_config('toxic.max-tasks', '1')))
 
 
 async def main(clear: bool):
