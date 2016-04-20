@@ -7,6 +7,7 @@ from json import loads, dumps
 from tempfile import TemporaryDirectory
 from asyncio import ensure_future, Future, Semaphore, Event
 
+from git_toxic.pytest import read_summary, get_summary_statistics
 from git_toxic.util import command, DirWatcher, log, background_task
 from git_toxic.git import Repository
 
@@ -15,6 +16,8 @@ from git_toxic.git import Repository
 _invisible_characters = [chr(0x200b), chr(0x2063)]
 
 _tox_state_file_path = 'toxic/results.json'
+
+_space = chr(0xa0)
 
 
 def _is_label(ref):
@@ -45,12 +48,19 @@ class TreeState(Enum):
 	failure = 'failure'
 
 
+class ToxResult:
+	def __init__(self, success: bool, summary: str):
+		self.success = success
+		self.summary = summary
+
+
 class Settings:
-	def __init__(self, *, labels_by_state: dict, max_distance: int, command: str, max_tasks: int):
+	def __init__(self, *, labels_by_state: dict, max_distance: int, command: str, max_tasks: int, resultlog_path: str):
 		self.labels_by_state = labels_by_state
 		self.max_distance = max_distance
 		self.command = command
 		self.max_tasks = max_tasks
+		self.resultlog_path = resultlog_path
 
 
 class DefaultDict(UserDict):
@@ -78,7 +88,7 @@ class Toxic:
 
 		self._commits_by_id = DefaultDict(partial(Commit, self))
 		self._label_refs = set()
-		self._state_by_commit_id = { }
+		self._label_by_commit_id = { }
 
 	def _find_unused_ref(self, prefix):
 		while True:
@@ -109,13 +119,8 @@ class Toxic:
 
 		return res
 
-	async def _set_label(self, commit_id, state):
-		if state is None:
-			label = None
-		else:
-			label = self._settings.labels_by_state[state]
-
-		current_label, current_ref = self._state_by_commit_id.get(commit_id, (None, None))
+	async def _set_label(self, commit_id, label):
+		current_label, current_ref = self._label_by_commit_id.get(commit_id, (None, None))
 
 		if current_label != label:
 			if label is None:
@@ -128,13 +133,13 @@ class Toxic:
 				self._label_refs.remove(current_ref)
 
 			if label is None:
-				del self._state_by_commit_id[commit_id]
+				del self._label_by_commit_id[commit_id]
 			else:
 				ref = self._find_unused_ref('refs/tags/' + label)
 
 				await self._repository.update_ref(ref, commit_id)
 				self._label_refs.add(ref)
-				self._state_by_commit_id[commit_id] = label, ref
+				self._label_by_commit_id[commit_id] = label, ref
 
 	async def _run_tox(self, tree_id, commit_id_hint):
 		async with self._tox_task_semaphore:
@@ -150,9 +155,21 @@ class Toxic:
 					cwd = temp_dir,
 					allow_error = True)
 
+				if self._settings.resultlog_path is None:
+					pytest_summary = None
+				else:
+					path = os.path.join(temp_dir, self._settings.resultlog_path)
+					
+					try:
+						pytest_summary = read_summary(path)
+					except FileNotFoundError:
+						log('Warning: Resultlog file {} not found.', path)
+						
+						pytest_summary = None
+
 		self._update_labels_event.set()
 
-		return [TreeState.success, TreeState.failure][bool(result.code)]
+		return ToxResult(not result.code, pytest_summary)
 
 	async def _check_refs(self):
 		log('Reading refs ...')
@@ -162,7 +179,6 @@ class Toxic:
 
 		for i in commits_to_label:
 			tree_id = await self._commits_by_id[i].get_tree_id()
-
 			future = self._result_futures_by_commit_id.get(tree_id)
 
 			if future is None:
@@ -171,13 +187,29 @@ class Toxic:
 				self._result_futures_by_commit_id[tree_id] = future
 
 			if future.done():
-				state = future.result()
+				result = future.result()
+
+				if result.success:
+					label = self._settings.labels_by_state[TreeState.success]
+				else:
+					label = self._settings.labels_by_state[TreeState.failure]
+					summary = result.summary
+					
+					if result.summary is not None:
+						statistics = get_summary_statistics(result.summary)
+
+						def iter_parts():
+							for c, n in ('e', statistics.errors), ('f', statistics.failures):
+								if n:
+									yield '{}{}{}'.format(_space, c, n)
+
+						label += ''.join(iter_parts())
 			else:
-				state = TreeState.pending
+				label = self._settings.labels_by_state[TreeState.pending]
 
-			await self._set_label(i, state)
+			await self._set_label(i, label)
 
-		for i in set(self._state_by_commit_id) - set(distances_by_commit_id):
+		for i in set(self._label_by_commit_id) - set(distances_by_commit_id):
 			await self._set_label(i, None)
 
 	def _read_tox_results(self):
@@ -188,7 +220,7 @@ class Toxic:
 
 		for i in data:
 			future = Future()
-			future.set_result(TreeState(i['state']))
+			future.set_result(ToxResult(i['success'], i['summary']))
 
 			self._result_futures_by_commit_id[i['tree_id']] = future
 
@@ -196,7 +228,12 @@ class Toxic:
 		def iter_data():
 			for k, v in self._result_futures_by_commit_id.items():
 				if v.done():
-					yield dict(tree_id = k, state = v.result().value)
+					result = v.result()
+
+					yield dict(
+						tree_id = k,
+						success = result.success,
+						summary = result.summary)
 
 		data = dumps(list(iter_data()))
 
@@ -220,8 +257,8 @@ class Toxic:
 
 		with background_task(dir_watch_task):
 			while True:
-				await self._check_refs()
 				self._write_tox_results()
+				await self._check_refs()
 
 				await self._update_labels_event.wait()
 				self._update_labels_event.clear()
