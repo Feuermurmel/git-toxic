@@ -1,3 +1,5 @@
+from collections import Counter
+
 from git_toxic.util import read_file
 
 
@@ -10,19 +12,18 @@ def read_summary(path):
 
 
 class Statistics:
-	def __init__(self, errors, failures):
+	def __init__(self, errors, failures, skipped, xpassed):
 		self.errors = errors
 		self.failures = failures
+		self.skipped = skipped
+		self.xpassed = xpassed
 
 
 def get_summary_statistics(summary: str):
-	errors = 0
-	failures = 0
+	types = dict(E = 'errors', F = 'failures', s = 'skipped', X = 'xpassed')
+	counter = Counter()
 
 	for i in summary:
-		if i == 'E':
-			errors += 1
-		elif i == 'F':
-			failures += 1
+		counter[types.get(i)] += 1
 
-	return Statistics(errors, failures)
+	return Statistics(**{ i: counter[i] for i in types.values() })

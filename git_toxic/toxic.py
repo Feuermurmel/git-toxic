@@ -209,7 +209,13 @@ class Toxic:
 				statistics = get_summary_statistics(summary)
 
 				def iter_parts():
-					for c, n in ('e', statistics.errors), ('f', statistics.failures):
+					counters = [
+						('e', statistics.errors),
+						('f', statistics.failures),
+						('s', statistics.skipped),
+						('x', statistics.xpassed)]
+
+					for c, n in counters:
 						if n:
 							yield '{}{}{}'.format(_space, c, n)
 
