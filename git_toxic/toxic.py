@@ -12,16 +12,9 @@ from git_toxic.util import command, DirWatcher, log, background_task
 from git_toxic.git import Repository
 
 
-# It was actually really hard to find those characters! They had to be rendered as zero-width space in a GUI application, not produce a line-break, be considered different from each other by HFS, not normalize to the empty string and not considered a white-space character by git.
-_invisible_characters = [chr(0x200b), chr(0x2063)]
-
 _tox_state_file_path = 'toxic/results.json'
 
 _space = chr(0xa0)
-
-
-def _is_label(ref):
-	return ref[-1] in _invisible_characters
 
 
 class Commit:
@@ -77,49 +70,24 @@ class DefaultDict(UserDict):
 		return value
 
 
-class Toxic:
-	def __init__(self, repository: Repository, settings: Settings):
+class Labelizer:
+	# It was actually really hard to find those characters! They had to be rendered as zero-width space in a GUI application, not produce a line-break, be considered different from each other by HFS, not normalize to the empty string and not be considered a white-space character by git.
+	_invisible_characters = [chr(0x200b), chr(0x2063)]
+
+	def __init__(self, repository: Repository):
 		self._repository = repository
-		self._settings = settings
 
-		self._update_labels_event = Event()
-		self._tox_task_semaphore = Semaphore(settings.max_tasks)
-		self._result_futures_by_commit_id = { }
-
-		self._commits_by_id = DefaultDict(partial(Commit, self))
 		self._label_refs = set()
 		self._label_by_commit_id = { }
 
 	def _find_unused_ref(self, prefix):
 		while True:
-			name = prefix + ''.join((random.choice(_invisible_characters) for _ in range(30)))
+			name = prefix + ''.join((random.choice(self._invisible_characters) for _ in range(30)))
 
 			if name not in self._label_refs:
 				return name
 
-	async def _get_refs(self):
-		refs = await self._repository.show_ref()
-
-		return [v for k, v in refs.items() if not _is_label(k)]
-
-	async def _get_reachable_commits(self):
-		"""
-		Collects all commits reachable from any refs which are not created by this application.
-
-		Returns a dict from commit ID to distance, where distance is the distance to the nearest child to which a ref points.
-		"""
-		res = { }
-
-		for i in await self._get_refs():
-			for j, x in enumerate(await self._repository.rev_list(i)):
-				distance = res.get(x)
-
-				if distance is None or distance > j:
-					res[x] = j
-
-		return res
-
-	async def _set_label(self, commit_id, label):
+	async def label_commit(self, commit_id, label):
 		current_label, current_ref = self._label_by_commit_id.get(commit_id, (None, None))
 
 		if current_label != label:
@@ -141,6 +109,58 @@ class Toxic:
 				self._label_refs.add(ref)
 				self._label_by_commit_id[commit_id] = label, ref
 
+	async def set_labels(self, labels_by_commit_id):
+		for k, v in labels_by_commit_id.items():
+			await self.label_commit(k, v)
+
+		for i in set(self._label_by_commit_id) - set(labels_by_commit_id):
+			await self.label_commit(i, None)
+
+	async def remove_label_refs(self):
+		for i in await self._repository.show_ref():
+			if self._is_label(i):
+				await self._repository.delete_ref(i)
+
+	async def get_non_label_refs(self):
+		refs = await self._repository.show_ref()
+
+		return [v for k, v in refs.items() if not self._is_label(k)]
+
+	@classmethod
+	def _is_label(cls, ref):
+		return ref[-1] in cls._invisible_characters
+
+
+class Toxic:
+	def __init__(self, repository: Repository, settings: Settings):
+		self._repository = repository
+		self._settings = settings
+
+		self._labelizer = Labelizer(self._repository)
+
+		self._update_labels_event = Event()
+		self._tox_task_semaphore = Semaphore(settings.max_tasks)
+		self._result_futures_by_commit_id = { }
+
+		self._commits_by_id = DefaultDict(partial(Commit, self))
+
+	async def _get_reachable_commits(self):
+		"""
+		Collects all commits reachable from any refs which are not created by this application.
+
+		Returns a dict from commit ID to distance, where distance is the distance to the nearest child to which a ref points.
+		"""
+		res = { }
+
+		for i in await self._labelizer.get_non_label_refs():
+			for j, x in enumerate(await self._repository.rev_list(i)):
+				distance = res.get(x)
+
+				if distance is None or distance > j:
+					res[x] = j
+
+		return res
+
 	async def _run_tox(self, tree_id, commit_id_hint):
 		async with self._tox_task_semaphore:
 			log('Running tox for commit {} ...'.format(commit_id_hint[:7]))
@@ -159,58 +179,59 @@ class Toxic:
 					pytest_summary = None
 				else:
 					path = os.path.join(temp_dir, self._settings.resultlog_path)
-					
+
 					try:
 						pytest_summary = read_summary(path)
 					except FileNotFoundError:
 						log('Warning: Resultlog file {} not found.', path)
-						
+
 						pytest_summary = None
 
 		self._update_labels_event.set()
 
 		return ToxResult(not result.code, pytest_summary)
 
+	async def _get_label(self, commit_id):
+		tree_id = await self._commits_by_id[commit_id].get_tree_id()
+		future = self._result_futures_by_commit_id.get(tree_id)
+
+		if future is None:
+			future = ensure_future(self._run_tox(tree_id, commit_id))
+
+			self._result_futures_by_commit_id[tree_id] = future
+
+		if future.done():
+			result = future.result()
+			state = TreeState.success if result.success else TreeState.failure
+			label = self._settings.labels_by_state[state]
+			summary = result.summary
+
+			if summary is not None and label is not None:
+				statistics = get_summary_statistics(summary)
+
+				def iter_parts():
+					for c, n in ('e', statistics.errors), ('f', statistics.failures):
+						if n:
+							yield '{}{}{}'.format(_space, c, n)
+
+				label += ''.join(iter_parts())
+		else:
+			label = self._settings.labels_by_state[TreeState.pending]
+
+		return label
+
 	async def _check_refs(self):
 		log('Reading refs ...')
 
 		distances_by_commit_id = await self._get_reachable_commits()
-		commits_to_label = sorted((k for k, v in distances_by_commit_id.items() if v < self._settings.max_distance), key = distances_by_commit_id.get)
+		commit = [k for k, v in distances_by_commit_id.items() if v < self._settings.max_distance]
 
-		for i in commits_to_label:
-			tree_id = await self._commits_by_id[i].get_tree_id()
-			future = self._result_futures_by_commit_id.get(tree_id)
+		labels_by_commit_id = { }
 
-			if future is None:
-				future = ensure_future(self._run_tox(tree_id, i))
+		for i in sorted(commit, key = distances_by_commit_id.get):
+			labels_by_commit_id[i] = await self._get_label(i)
 
-				self._result_futures_by_commit_id[tree_id] = future
-
-			if future.done():
-				result = future.result()
-
-				if result.success:
-					label = self._settings.labels_by_state[TreeState.success]
-				else:
-					label = self._settings.labels_by_state[TreeState.failure]
-					summary = result.summary
-					
-					if result.summary is not None:
-						statistics = get_summary_statistics(result.summary)
-
-						def iter_parts():
-							for c, n in ('e', statistics.errors), ('f', statistics.failures):
-								if n:
-									yield '{}{}{}'.format(_space, c, n)
-
-						label += ''.join(iter_parts())
-			else:
-				label = self._settings.labels_by_state[TreeState.pending]
-
-			await self._set_label(i, label)
-
-		for i in set(self._label_by_commit_id) - set(distances_by_commit_id):
-			await self._set_label(i, None)
+		await self._labelizer.set_labels(labels_by_commit_id)
 
 	def _read_tox_results(self):
 		try:
@@ -246,7 +267,7 @@ class Toxic:
 
 		log('Initializing ...')
 
-		await self.clear_labels()
+		await self._labelizer.remove_label_refs()
 		self._read_tox_results()
 
 		async def dir_watch_task():
@@ -264,6 +285,4 @@ class Toxic:
 				self._update_labels_event.clear()
 
 	async def clear_labels(self):
-		for i in await self._repository.show_ref():
-			if _is_label(i):
-				await self._repository.delete_ref(i)
+		self._labelizer.remove_label_refs()
