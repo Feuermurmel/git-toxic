@@ -1,3 +1,5 @@
+from itertools import count
+
 import os
 import random
 from functools import partial
@@ -77,15 +79,14 @@ class Labelizer:
 	def __init__(self, repository: Repository):
 		self._repository = repository
 
-		self._label_refs = set()
+		self._label_id_iter = count()
 		self._label_by_commit_id = { }
 
-	def _find_unused_ref(self, prefix):
-		while True:
-			name = prefix + ''.join((random.choice(self._invisible_characters) for _ in range(30)))
+	def _get_label_suffix(self):
+		id = next(self._label_id_iter)
+		bits = '{:b}'.format(id)
 
-			if name not in self._label_refs:
-				return name
+		return ''.join(self._invisible_characters[int(i)] for i in bits)
 
 	async def label_commit(self, commit_id, label):
 		current_label, current_ref = self._label_by_commit_id.get(commit_id, (None, None))
@@ -98,15 +99,13 @@ class Labelizer:
 
 			if current_ref is not None:
 				await self._repository.delete_ref(current_ref)
-				self._label_refs.remove(current_ref)
 
 			if label is None:
 				del self._label_by_commit_id[commit_id]
 			else:
-				ref = self._find_unused_ref('refs/tags/' + label)
+				ref = 'refs/tags/' + label + self._get_label_suffix()
 
 				await self._repository.update_ref(ref, commit_id)
-				self._label_refs.add(ref)
 				self._label_by_commit_id[commit_id] = label, ref
 
 	async def set_labels(self, labels_by_commit_id):
