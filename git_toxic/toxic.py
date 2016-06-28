@@ -216,10 +216,12 @@ class Toxic:
 						('x', statistics.xpassed)]
 
 					for c, n in counters:
-						if n:
-							yield '{}{}{}'.format(_space, c, n)
+						if n > 5:
+							yield c + str(n)
+						elif n:
+							yield c * n
 
-				label += ''.join(iter_parts())
+				label += ''.join(_space + i for i in iter_parts())
 		else:
 			label = self._settings.labels_by_state[TreeState.pending]
 
