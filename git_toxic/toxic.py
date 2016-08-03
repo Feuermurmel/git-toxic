@@ -123,7 +123,7 @@ class Labelizer:
 	async def get_non_label_refs(self):
 		refs = await self._repository.show_ref()
 
-		return [v for k, v in refs.items() if not self._is_label(k)]
+		return {k: v for k, v in refs.items() if not self._is_label(k)}
 
 	@classmethod
 	def _is_label(cls, ref):
@@ -149,14 +149,16 @@ class Toxic:
 
 		Returns a dict from commit ID to distance, where distance is the distance to the nearest child to which a ref points.
 		"""
+		allowed_ref_dirs = 'heads tags remotes'.split()
 		res = { }
 
-		for i in await self._labelizer.get_non_label_refs():
-			for j, x in enumerate(await self._repository.rev_list(i)):
-				distance = res.get(x)
+		for k, v in (await self._labelizer.get_non_label_refs()).items():
+			if any(k.startswith('refs/{}/'.format(i)) for i in allowed_ref_dirs):
+				for i, x in enumerate(await self._repository.rev_list(v)):
+					distance = res.get(x)
 
-				if distance is None or distance > j:
-					res[x] = j
+					if distance is None or distance > i:
+						res[x] = i
 
 		return res
 
