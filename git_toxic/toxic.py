@@ -149,7 +149,7 @@ class Toxic:
 
 		Returns a dict from commit ID to distance, where distance is the distance to the nearest child to which a ref points.
 		"""
-		allowed_ref_dirs = 'heads tags remotes'.split()
+		allowed_ref_dirs = ['heads' ,'remotes']
 		res = { }
 
 		for k, v in (await self._labelizer.get_non_label_refs()).items():
