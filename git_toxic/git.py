@@ -1,5 +1,6 @@
 import os
-from subprocess import Popen, PIPE
+import subprocess
+
 from git_toxic.util import command, command_lines, read_file, write_file
 
 
@@ -65,14 +66,8 @@ class Repository:
 			return default
 
 	async def export_to_dir(self, commit_id, dir):
-		git_process = Popen([*self._command_args_prefix(), 'archive', commit_id], stdout = PIPE)
-		tar_process = Popen(['tar', '-x', '-C', dir], stdin = git_process.stdout)
-
-		git_process.wait()
-		tar_process.wait()
-
-		assert not git_process.returncode
-		assert not tar_process.returncode
+		subprocess.check_call(['git', 'clone', self.path, dir])
+		subprocess.check_call(['git', 'checkout', commit_id], cwd=dir)
 
 	def read_file(self, path):
 		return read_file(os.path.join(self.path, path))

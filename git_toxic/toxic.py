@@ -162,12 +162,12 @@ class Toxic:
 
 		return res
 
-	async def _run_tox(self, tree_id, commit_id_hint):
+	async def _run_tox(self, commit_id):
 		async with self._tox_task_semaphore:
-			log('Running tox for commit {} ...'.format(commit_id_hint[:7]))
+			log('Running tox for commit {} ...'.format(commit_id[:7]))
 
 			with TemporaryDirectory() as temp_dir:
-				await self._repository.export_to_dir(tree_id, temp_dir)
+				await self._repository.export_to_dir(commit_id, temp_dir)
 
 				result = await command(
 					'bash',
@@ -193,11 +193,13 @@ class Toxic:
 		return ToxResult(not result.code, pytest_summary)
 
 	async def _get_label(self, commit_id):
+		# Results are cached by the tree ID, but testing a tree requires the
+		# commit ID.
 		tree_id = await self._commits_by_id[commit_id].get_tree_id()
 		future = self._result_futures_by_commit_id.get(tree_id)
 
 		if future is None:
-			future = ensure_future(self._run_tox(tree_id, commit_id))
+			future = ensure_future(self._run_tox(commit_id))
 
 			self._result_futures_by_commit_id[tree_id] = future
 
