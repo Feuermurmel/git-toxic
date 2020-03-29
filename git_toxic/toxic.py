@@ -1,17 +1,15 @@
-from itertools import count
-
 import os
-import random
-from functools import partial
+from asyncio import ensure_future, Future, Semaphore, Event
 from collections import UserDict
 from enum import Enum
+from functools import partial
+from itertools import count
 from json import loads, dumps
 from tempfile import TemporaryDirectory
-from asyncio import ensure_future, Future, Semaphore, Event
 
+from git_toxic.git import Repository
 from git_toxic.pytest import read_summary, get_summary_statistics
 from git_toxic.util import command, DirWatcher, log, background_task
-from git_toxic.git import Repository
 
 
 _tox_state_file_path = 'toxic/results.json'
@@ -294,4 +292,4 @@ class Toxic:
 				self._update_labels_event.clear()
 
 	async def clear_labels(self):
-		self._labelizer.remove_label_refs()
+		await self._labelizer.remove_label_refs()
