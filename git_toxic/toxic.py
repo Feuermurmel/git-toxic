@@ -232,8 +232,6 @@ class Toxic:
 		return label
 
 	async def _check_refs(self):
-		log('Reading refs ...')
-
 		distances_by_commit_id = await self._get_reachable_commits()
 		commit = [k for k, v in distances_by_commit_id.items() if v < self._settings.max_distance]
 
