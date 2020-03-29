@@ -6,15 +6,9 @@ from git_toxic.git import Repository
 from git_toxic.toxic import Toxic, TreeState, Settings
 
 
-yes = chr(0x1f3Be) # Tennis ball
-no = chr(0x274c) # Red cross mark
-
-check_mark = chr(0x2714)
-cross_mark = chr(0x2718)
-
-colon = chr(0xa789)
-space = chr(0xa0)
-dots = chr(0x22ef)
+# Successful commits are not labelled by default.
+default_failure_label = '\U0001F53A'
+default_pending_label = '\u2022\u2005\u2022\u2005\u2022'
 
 
 def parse_args():
@@ -36,9 +30,9 @@ async def read_settings(repository: Repository):
 
 	return Settings(
 		labels_by_state = {
-			TreeState.pending: await read_label('pending', dots),
-			TreeState.success: await read_label('success', check_mark),
-			TreeState.failure: await read_label('failure', cross_mark) },
+			TreeState.pending: await read_label('pending', default_pending_label),
+			TreeState.success: await read_label('success', None),
+			TreeState.failure: await read_label('failure', default_failure_label) },
 		max_distance = int(await repository.read_config('toxic.max-distance', 5)),
 		command = await repository.read_config('toxic.command', 'tox'),
 		max_tasks = int(await repository.read_config('toxic.max-tasks', '1')),
