@@ -6,10 +6,9 @@ from enum import Enum
 from functools import partial
 from itertools import count
 from json import loads, dumps
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 from git_toxic.git import Repository
-from git_toxic.pytest import read_summary, get_summary_statistics
 from git_toxic.util import command, DirWatcher, log, read_file, write_file, \
     cleaned_up_directory
 
@@ -43,10 +42,9 @@ class TreeState(Enum):
     failure = 'failure'
 
 
-class ToxResult:
-    def __init__(self, success: bool, summary: str):
-        self.success = success
-        self.summary = summary
+class ToxicResult(NamedTuple):
+    success: bool
+    summary: Optional[str]
 
 
 class Settings(NamedTuple):
@@ -54,7 +52,7 @@ class Settings(NamedTuple):
     max_distance: int
     command: str
     max_tasks: int
-    resultlog_path: str
+    summary_path: str
 
 
 class DefaultDict(UserDict):
@@ -195,20 +193,17 @@ class Toxic:
                     env=env,
                     allow_error=True)
 
-                if self._settings.resultlog_path is None:
-                    pytest_summary = None
-                else:
-                    path = os.path.join(work_dir, self._settings.resultlog_path)
+                summary_path = os.path.join(work_dir, self._settings.summary_path)
 
-                    try:
-                        pytest_summary = read_summary(path)
-                    except FileNotFoundError:
-                        log(f'Warning: Resultlog file {path} not found.')
+                try:
+                    summary = read_file(summary_path)
+                except FileNotFoundError:
+                    log(f'Warning: Summary file {summary_path} not found.')
 
-                        pytest_summary = None
+                    summary = None
 
             self._results_by_tree_id[task.tree_id] = \
-                ToxResult(not result.code, pytest_summary)
+                ToxicResult(not result.code, summary)
 
             self._update_labels_event.set()
 
@@ -229,23 +224,8 @@ class Toxic:
             label = self._settings.labels_by_state[state]
             summary = result.summary
 
-            if summary is not None and label is not None:
-                statistics = get_summary_statistics(summary)
-
-                def iter_parts():
-                    counters = [
-                        ('e', statistics.errors),
-                        ('f', statistics.failures),
-                        ('s', statistics.skipped),
-                        ('x', statistics.xpassed)]
-
-                    for c, n in counters:
-                        if n > 5:
-                            yield c + str(n)
-                        elif n:
-                            yield c * n
-
-                label += ''.join(_space + i for i in iter_parts())
+            if label is not None and summary is not None:
+                label = _space.join([label, *summary.split()])
 
         return label
 
@@ -270,7 +250,7 @@ class Toxic:
             return
 
         self._results_by_tree_id = {
-            i['tree_id']: ToxResult(i['success'], i['summary'])
+            i['tree_id']: ToxicResult(i['success'], i['summary'])
             for i in data}
 
     def _write_tox_results(self):

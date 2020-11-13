@@ -37,12 +37,12 @@ async def read_settings(repository: Repository):
     max_distance = int(await repository.read_config('toxic.max-distance', 5))
     command = await repository.read_config('toxic.command')
     max_tasks = int(await repository.read_config('toxic.max-tasks', 1))
-    resultlog_path = await repository.read_config('toxic.resultlog-path')
+    summary_path = await repository.read_config('toxic.summary-path')
 
     if command is None:
         raise UserError('No value for configuration toxic.command has been set.')
 
-    return Settings(labels_by_state, max_distance, command, max_tasks, resultlog_path)
+    return Settings(labels_by_state, max_distance, command, max_tasks, summary_path)
 
 
 async def main(clear: bool):
