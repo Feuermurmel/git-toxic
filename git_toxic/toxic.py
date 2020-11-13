@@ -1,5 +1,6 @@
 import os
 from asyncio import ensure_future, Future, Semaphore, Event
+from asyncio.tasks import gather
 from collections import UserDict
 from enum import Enum
 from functools import partial
@@ -10,8 +11,7 @@ from typing import NamedTuple
 
 from git_toxic.git import Repository
 from git_toxic.pytest import read_summary, get_summary_statistics
-from git_toxic.util import command, DirWatcher, log, background_task, read_file, \
-    write_file
+from git_toxic.util import command, DirWatcher, log, read_file, write_file
 
 
 _tox_state_file_path = 'toxic/results.json'
@@ -290,19 +290,21 @@ class Toxic:
         await self._labelizer.remove_label_refs()
         self._read_tox_results()
 
-        async def dir_watch_task():
+        async def watch_dir():
             async with DirWatcher(os.path.join(self._repository.path, 'refs')) as watcher:
                 while True:
                     await watcher()
                     self._update_labels_event.set()
 
-        with background_task(dir_watch_task):
+        async def process_events():
             while True:
                 self._write_tox_results()
                 await self._check_refs()
 
                 await self._update_labels_event.wait()
                 self._update_labels_event.clear()
+
+        await gather(watch_dir(), process_events())
 
     async def clear_labels(self):
         await self._labelizer.remove_label_refs()
