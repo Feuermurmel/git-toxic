@@ -5,8 +5,8 @@ from asyncio import Event, create_subprocess_exec, ensure_future
 from asyncio.subprocess import PIPE
 
 
-def log(message, *args):
-    print(message.format(*args), file=sys.stderr)
+def log(message):
+    print(f'git toxic: {message}', file=sys.stderr, flush=True)
 
 
 class UserError(Exception):

@@ -85,18 +85,17 @@ class Labelizer:
 
     def _get_label_suffix(self):
         id = next(self._label_id_iter)
-        bits = '{:b}'.format(id)
 
-        return ''.join(self._invisible_characters[int(i)] for i in bits)
+        return ''.join(self._invisible_characters[int(i)] for i in f'{id:b}')
 
     async def label_commit(self, commit_id, label):
         current_label, current_ref = self._label_by_commit_id.get(commit_id, (None, None))
 
         if current_label != label:
             if label is None:
-                log('Removing label from commit {}.', commit_id[:7])
+                log(f'Removing label from commit {commit_id[:7]}.')
             else:
-                log('Setting label of commit {} to {}.', commit_id[:7], label)
+                log(f'Setting label of commit {commit_id[:7]} to {label}.')
 
             if current_ref is not None:
                 await self._repository.delete_ref(current_ref)
@@ -156,7 +155,7 @@ class Toxic:
         res = {}
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
-            if any(k.startswith('refs/{}/'.format(i)) for i in allowed_ref_dirs):
+            if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
                 for i, x in enumerate(await self._repository.rev_list(v)):
                     distance = res.get(x)
 
@@ -167,7 +166,7 @@ class Toxic:
 
     async def _run_tox(self, commit_id):
         async with self._tox_task_semaphore:
-            log('Running command for commit {} ...'.format(commit_id[:7]))
+            log(f'Running command for commit {commit_id[:7]} ...')
 
             with TemporaryDirectory() as temp_dir:
                 await self._repository.export_to_dir(commit_id, temp_dir)
@@ -192,7 +191,7 @@ class Toxic:
                     try:
                         pytest_summary = read_summary(path)
                     except FileNotFoundError:
-                        log('Warning: Resultlog file {} not found.', path)
+                        log(f'Warning: Resultlog file {path} not found.')
 
                         pytest_summary = None
 
