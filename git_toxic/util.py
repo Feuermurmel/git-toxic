@@ -39,7 +39,7 @@ class CommandResult:
         self.err = err
 
 
-async def command(*args, use_stdout=False, use_stderr=False, allow_error=False, cwd=None):
+async def command(*args, use_stdout=False, use_stderr=False, allow_error=False, **kwargs):
     if use_stdout:
         stdout = PIPE
     else:
@@ -50,7 +50,7 @@ async def command(*args, use_stdout=False, use_stderr=False, allow_error=False, 
     else:
         stderr = sys.stderr
 
-    process = await create_subprocess_exec(*args, stdout=stdout, stderr=stderr, cwd=cwd)
+    process = await create_subprocess_exec(*args, stdout=stdout, stderr=stderr, **kwargs)
     out, err = await process.communicate()
     res = CommandResult(process.returncode, out, out)
 

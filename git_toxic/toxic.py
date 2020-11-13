@@ -172,11 +172,16 @@ class Toxic:
             with TemporaryDirectory() as temp_dir:
                 await self._repository.export_to_dir(commit_id, temp_dir)
 
+                env = dict(
+                    os.environ,
+                    TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir))
+
                 result = await command(
                     'bash',
                     '-c',
                     self._settings.command,
                     cwd=temp_dir,
+                    env=env,
                     allow_error=True)
 
                 if self._settings.resultlog_path is None:
