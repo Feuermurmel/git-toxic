@@ -69,12 +69,6 @@ class Repository:
         subprocess.check_call(['git', 'clone', self.path, dir])
         subprocess.check_call(['git', 'checkout', commit_id], cwd=dir)
 
-    def read_file(self, path):
-        return read_file(os.path.join(self.path, path))
-
-    def write_file(self, path, content):
-        return write_file(os.path.join(self.path, path), content)
-
     @classmethod
     async def from_dir(cls, path):
         line, = await command_lines('git', 'rev-parse', '--git-dir', cwd=path)

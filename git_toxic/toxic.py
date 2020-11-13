@@ -10,7 +10,8 @@ from typing import NamedTuple
 
 from git_toxic.git import Repository
 from git_toxic.pytest import read_summary, get_summary_statistics
-from git_toxic.util import command, DirWatcher, log, background_task
+from git_toxic.util import command, DirWatcher, log, background_task, read_file, \
+    write_file
 
 
 _tox_state_file_path = 'toxic/results.json'
@@ -253,7 +254,8 @@ class Toxic:
 
     def _read_tox_results(self):
         try:
-            data = loads(self._repository.read_file(_tox_state_file_path))
+            path = os.path.join(self._repository.path, _tox_state_file_path)
+            data = loads(read_file(path))
         except FileNotFoundError:
             return
 
@@ -274,9 +276,9 @@ class Toxic:
                         success=result.success,
                         summary=result.summary)
 
-        data = dumps(list(iter_data()))
+        path = os.path.join(self._repository.path, _tox_state_file_path)
 
-        self._repository.write_file(_tox_state_file_path, data)
+        write_file(path, dumps(list(iter_data())))
 
     async def run(self):
         """
