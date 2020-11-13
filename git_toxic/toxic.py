@@ -6,6 +6,7 @@ from functools import partial
 from itertools import count
 from json import loads, dumps
 from tempfile import TemporaryDirectory
+from typing import NamedTuple
 
 from git_toxic.git import Repository
 from git_toxic.pytest import read_summary, get_summary_statistics
@@ -47,19 +48,12 @@ class ToxResult:
         self.summary = summary
 
 
-class Settings:
-    def __init__(
-            self,
-            *, labels_by_state: dict,
-            max_distance: int,
-            command: str,
-            max_tasks: int,
-            resultlog_path: str):
-        self.labels_by_state = labels_by_state
-        self.max_distance = max_distance
-        self.command = command
-        self.max_tasks = max_tasks
-        self.resultlog_path = resultlog_path
+class Settings(NamedTuple):
+    labels_by_state: dict
+    max_distance: int
+    command: str
+    max_tasks: int
+    resultlog_path: str
 
 
 class DefaultDict(UserDict):
@@ -173,7 +167,7 @@ class Toxic:
 
     async def _run_tox(self, commit_id):
         async with self._tox_task_semaphore:
-            log('Running tox for commit {} ...'.format(commit_id[:7]))
+            log('Running command for commit {} ...'.format(commit_id[:7]))
 
             with TemporaryDirectory() as temp_dir:
                 await self._repository.export_to_dir(commit_id, temp_dir)

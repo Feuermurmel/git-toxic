@@ -9,6 +9,10 @@ def log(message, *args):
     print(message.format(*args), file=sys.stderr)
 
 
+class UserError(Exception):
+    pass
+
+
 def read_file(path):
     with open(path, 'r', encoding='utf-8') as file:
         return file.read()
