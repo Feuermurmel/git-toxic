@@ -1,5 +1,5 @@
 import os
-from asyncio import ensure_future, Future, Semaphore, Event
+from asyncio import ensure_future, Event, Queue
 from asyncio.tasks import gather
 from collections import UserDict
 from enum import Enum
@@ -131,6 +131,11 @@ class Labelizer:
         return ref[-1] in cls._invisible_characters
 
 
+class ToxicTask(NamedTuple):
+    tree_id: str
+    commit_id: str
+
+
 class Toxic:
     def __init__(self, repository: Repository, settings: Settings):
         self._repository = repository
@@ -139,8 +144,12 @@ class Toxic:
         self._labelizer = Labelizer(self._repository)
 
         self._update_labels_event = Event()
-        self._tox_task_semaphore = Semaphore(settings.max_tasks)
-        self._result_futures_by_commit_id = {}
+
+        self._task_queue = Queue()
+
+        # Each value is either a ToxResult instance or `...`, if a task is
+        # currently queued for that commit ID.
+        self._results_by_tree_id = {}
 
         self._commits_by_id = DefaultDict(partial(Commit, self))
 
@@ -165,12 +174,14 @@ class Toxic:
 
         return res
 
-    async def _run_tox(self, commit_id):
-        async with self._tox_task_semaphore:
-            log(f'Running command for commit {commit_id[:7]} ...')
+    async def _worker(self):
+        while True:
+            task = await self._task_queue.get()
+
+            log(f'Running command for commit {task.commit_id[:7]} ...')
 
             with TemporaryDirectory() as temp_dir:
-                await self._repository.export_to_dir(commit_id, temp_dir)
+                await self._repository.export_to_dir(task.commit_id, temp_dir)
 
                 env = dict(
                     os.environ,
@@ -196,23 +207,24 @@ class Toxic:
 
                         pytest_summary = None
 
-        self._update_labels_event.set()
+            self._results_by_tree_id[task.tree_id] = \
+                ToxResult(not result.code, pytest_summary)
 
-        return ToxResult(not result.code, pytest_summary)
+            self._update_labels_event.set()
 
     async def _get_label(self, commit_id):
         # Results are cached by the tree ID, but testing a tree requires the
         # commit ID.
         tree_id = await self._commits_by_id[commit_id].get_tree_id()
-        future = self._result_futures_by_commit_id.get(tree_id)
+        result = self._results_by_tree_id.get(tree_id)
 
-        if future is None:
-            future = ensure_future(self._run_tox(commit_id))
+        if result is None:
+            self._task_queue.put_nowait(ToxicTask(tree_id, commit_id))
+            self._results_by_tree_id[tree_id] = result = ...
 
-            self._result_futures_by_commit_id[tree_id] = future
-
-        if future.done():
-            result = future.result()
+        if result is ...:
+            label = self._settings.labels_by_state[TreeState.pending]
+        else:
             state = TreeState.success if result.success else TreeState.failure
             label = self._settings.labels_by_state[state]
             summary = result.summary
@@ -234,8 +246,6 @@ class Toxic:
                             yield c * n
 
                 label += ''.join(_space + i for i in iter_parts())
-        else:
-            label = self._settings.labels_by_state[TreeState.pending]
 
         return label
 
@@ -259,34 +269,24 @@ class Toxic:
         except FileNotFoundError:
             return
 
-        for i in data:
-            future = Future()
-            future.set_result(ToxResult(i['success'], i['summary']))
-
-            self._result_futures_by_commit_id[i['tree_id']] = future
+        self._results_by_tree_id = {
+            i['tree_id']: ToxResult(i['success'], i['summary'])
+            for i in data}
 
     def _write_tox_results(self):
-        def iter_data():
-            for k, v in self._result_futures_by_commit_id.items():
-                if v.done():
-                    result = v.result()
-
-                    yield dict(
-                        tree_id=k,
-                        success=result.success,
-                        summary=result.summary)
+        data = [
+            dict(tree_id=k, success=v.success, summary=v.summary)
+            for k, v in self._results_by_tree_id.items()
+            if v is not ...]
 
         path = os.path.join(self._repository.path, _tox_state_file_path)
 
-        write_file(path, dumps(list(iter_data())))
+        write_file(path, dumps(data))
 
     async def run(self):
         """
         Reads existing tags and keeps them updated when refs change.
         """
-
-        log('Initializing ...')
-
         await self._labelizer.remove_label_refs()
         self._read_tox_results()
 
@@ -297,6 +297,8 @@ class Toxic:
                     self._update_labels_event.set()
 
         async def process_events():
+            log('Waiting for changes ...')
+
             while True:
                 self._write_tox_results()
                 await self._check_refs()
@@ -304,7 +306,9 @@ class Toxic:
                 await self._update_labels_event.wait()
                 self._update_labels_event.clear()
 
-        await gather(watch_dir(), process_events())
+        worker_tasks = [self._worker() for _ in range(self._settings.max_tasks)]
+
+        await gather(watch_dir(), process_events(), *worker_tasks)
 
     async def clear_labels(self):
         await self._labelizer.remove_label_refs()
