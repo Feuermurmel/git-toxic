@@ -6,12 +6,12 @@ from enum import Enum
 from functools import partial
 from itertools import count
 from json import loads, dumps
-from tempfile import TemporaryDirectory
 from typing import NamedTuple
 
 from git_toxic.git import Repository
 from git_toxic.pytest import read_summary, get_summary_statistics
-from git_toxic.util import command, DirWatcher, log, read_file, write_file
+from git_toxic.util import command, DirWatcher, log, read_file, write_file, \
+    cleaned_up_directory
 
 
 _tox_state_file_path = 'toxic/results.json'
@@ -174,14 +174,14 @@ class Toxic:
 
         return res
 
-    async def _worker(self):
+    async def _worker(self, work_dir):
         while True:
             task = await self._task_queue.get()
 
             log(f'Running command for commit {task.commit_id[:7]} ...')
 
-            with TemporaryDirectory() as temp_dir:
-                await self._repository.export_to_dir(task.commit_id, temp_dir)
+            with cleaned_up_directory(work_dir):
+                await self._repository.export_to_dir(task.commit_id, work_dir)
 
                 env = dict(
                     os.environ,
@@ -191,14 +191,14 @@ class Toxic:
                     'bash',
                     '-c',
                     self._settings.command,
-                    cwd=temp_dir,
+                    cwd=work_dir,
                     env=env,
                     allow_error=True)
 
                 if self._settings.resultlog_path is None:
                     pytest_summary = None
                 else:
-                    path = os.path.join(temp_dir, self._settings.resultlog_path)
+                    path = os.path.join(work_dir, self._settings.resultlog_path)
 
                     try:
                         pytest_summary = read_summary(path)
@@ -306,7 +306,9 @@ class Toxic:
                 await self._update_labels_event.wait()
                 self._update_labels_event.clear()
 
-        worker_tasks = [self._worker() for _ in range(self._settings.max_tasks)]
+        worker_tasks = [
+            self._worker(os.path.join(self._repository.path, f'toxic/worker-{i}'))
+            for i in range(self._settings.max_tasks)]
 
         await gather(watch_dir(), process_events(), *worker_tasks)
 

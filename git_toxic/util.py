@@ -1,3 +1,4 @@
+import shutil
 import sys
 import os
 from contextlib import contextmanager
@@ -64,6 +65,18 @@ async def command_lines(*args, **kwargs):
     result = command(*args, use_stdout=True, **kwargs)
 
     return (await result).out.decode().splitlines()
+
+
+@contextmanager
+def cleaned_up_directory(path):
+    if os.path.exists(path):
+        shutil.rmtree(path)
+
+    os.makedirs(path, exist_ok=True)
+
+    yield
+
+    shutil.rmtree(path)
 
 
 class DirWatcher:
