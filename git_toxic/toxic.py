@@ -1,11 +1,13 @@
 import os
-from asyncio import ensure_future, Event, Queue
+from asyncio import ensure_future, Event
+from asyncio.queues import PriorityQueue
 from asyncio.tasks import gather
 from collections import UserDict
 from enum import Enum
 from functools import partial
 from itertools import count
 from json import loads, dumps
+from math import inf
 from typing import NamedTuple, Optional
 
 from git_toxic.git import Repository
@@ -130,6 +132,7 @@ class Labelizer:
 
 
 class ToxicTask(NamedTuple):
+    distance: int
     tree_id: str
     commit_id: str
 
@@ -143,7 +146,7 @@ class Toxic:
 
         self._update_labels_event = Event()
 
-        self._task_queue = Queue()
+        self._task_queue = PriorityQueue()
 
         # Each value is either a ToxResult instance or `...`, if a task is
         # currently queued for that commit ID.
@@ -156,21 +159,20 @@ class Toxic:
         Collects all commits reachable from any refs which are not created by
         this application.
 
-        Returns a dict from commit ID to distance, where distance is the
+        Returns a list of tuples (commit id, distance), where distance is the
         distance to the nearest child to which a ref points.
         """
         allowed_ref_dirs = ['heads', 'remotes']
-        res = {}
+        distances = {}
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
             if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
                 for i, x in enumerate(await self._repository.rev_list(v)):
-                    distance = res.get(x)
+                    # TODO: The index is not really the distance when merges
+                    #  are involved.
+                    distances[x] = min(distances.get(x, inf), i)
 
-                    if distance is None or distance > i:
-                        res[x] = i
-
-        return res
+        return [(k, v) for k, v in distances.items()]
 
     async def _worker(self, work_dir):
         while True:
@@ -207,14 +209,14 @@ class Toxic:
 
             self._update_labels_event.set()
 
-    async def _get_label(self, commit_id):
+    async def _get_label(self, commit_id, distance):
         # Results are cached by the tree ID, but testing a tree requires the
         # commit ID.
         tree_id = await self._commits_by_id[commit_id].get_tree_id()
         result = self._results_by_tree_id.get(tree_id)
 
         if result is None:
-            self._task_queue.put_nowait(ToxicTask(tree_id, commit_id))
+            self._task_queue.put_nowait(ToxicTask(distance, tree_id, commit_id))
             self._results_by_tree_id[tree_id] = result = ...
 
         if result is ...:
@@ -230,15 +232,12 @@ class Toxic:
         return label
 
     async def _check_refs(self):
-        distances_by_commit_id = await self._get_reachable_commits()
-        commit = [
-            k for k, v in distances_by_commit_id.items()
-            if v < self._settings.max_distance]
-
         labels_by_commit_id = {}
 
-        for i in sorted(commit, key=distances_by_commit_id.get):
-            labels_by_commit_id[i] = await self._get_label(i)
+        for commit_id, distance in await self._get_reachable_commits():
+            if distance < self._settings.max_distance:
+                labels_by_commit_id[commit_id] = \
+                    await self._get_label(commit_id, distance)
 
         await self._labelizer.set_labels(labels_by_commit_id)
 
