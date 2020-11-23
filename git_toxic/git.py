@@ -17,10 +17,8 @@ class Repository:
     async def _command_lines(self, *args, **kwargs):
         return await command_lines(*self._command_args_prefix(), *args, **kwargs)
 
-    async def rev_list(self, *refs, max_count=None):
-        max_count_args = [] if max_count is None else ['--max-count', str(max_count)]
-
-        return await self._command_lines('rev-list', *max_count_args, *refs)
+    async def rev_list(self, *refs):
+        return await self._command_lines('rev-list', '--first-parent', *refs)
 
     async def show_ref(self):
         list = await self._command_lines('show-ref')
