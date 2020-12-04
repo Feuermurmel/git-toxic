@@ -54,7 +54,8 @@ class Settings(NamedTuple):
     max_distance: int
     command: str
     max_tasks: int
-    summary_path: str
+    summary_path: Optional[str]
+    history_limit: Optional[str]
 
 
 class DefaultDict(UserDict):
@@ -167,7 +168,14 @@ class Toxic:
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
             if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
-                for i, x in enumerate(await self._repository.rev_list(v)):
+                if self._settings.history_limit is None:
+                    refs_args = ['--first-parent', v]
+                else:
+                    # Exclude commits from which the history limit commit is
+                    # not reachable.
+                    refs_args = ['--ancestry-path', v, f'^{self._settings.history_limit}']
+
+                for i, x in enumerate(await self._repository.rev_list(*refs_args)):
                     # TODO: The index is not really the distance when merges
                     #  are involved.
                     distances[x] = min(distances.get(x, inf), i)

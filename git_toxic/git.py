@@ -18,7 +18,7 @@ class Repository:
         return await command_lines(*self._command_args_prefix(), *args, **kwargs)
 
     async def rev_list(self, *refs):
-        return await self._command_lines('rev-list', '--first-parent', *refs)
+        return await self._command_lines('rev-list', *refs)
 
     async def show_ref(self):
         list = await self._command_lines('show-ref')

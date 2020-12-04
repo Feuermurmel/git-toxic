@@ -38,11 +38,12 @@ async def read_settings(repository: Repository):
     command = await repository.read_config('toxic.command')
     max_tasks = int(await repository.read_config('toxic.max-tasks', 1))
     summary_path = await repository.read_config('toxic.summary-path')
+    history_limit = await repository.read_config('toxic.history-limit')
 
     if command is None:
         raise UserError('No value for configuration toxic.command has been set.')
 
-    return Settings(labels_by_state, max_distance, command, max_tasks, summary_path)
+    return Settings(labels_by_state, max_distance, command, max_tasks, summary_path, history_limit)
 
 
 async def main(clear: bool):
