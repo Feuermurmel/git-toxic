@@ -113,51 +113,44 @@ class Toxic:
 
         return [(k, v) for k, v in distances.items()]
 
+    async def _run_command(self, work_dir, commit_id):
+        log(f'Running command for commit {commit_id[:7]} ...')
+
+        with cleaned_up_directory(work_dir):
+            await self._repository.export_to_dir(commit_id, work_dir)
+
+            env = dict(
+                os.environ,
+                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir))
+
+            result = await command(
+                'bash',
+                '-c',
+                self._settings.command,
+                cwd=work_dir,
+                env=env,
+                allow_error=True)
+
+            summary_path = os.path.join(work_dir, self._settings.summary_path)
+
+            try:
+                summary = read_file(summary_path)
+            except FileNotFoundError:
+                log(f'Warning: Summary file {summary_path} not found.')
+
+                summary = None
+
+            return ToxicResult(not result.code, summary)
+
     async def _worker(self, work_dir):
         while True:
             task = await self._task_queue.get()
+            result = await self._run_command(work_dir, task.commit_id)
 
-            log(f'Running command for commit {task.commit_id[:7]} ...')
-
-            with cleaned_up_directory(work_dir):
-                await self._repository.export_to_dir(task.commit_id, work_dir)
-
-                env = dict(
-                    os.environ,
-                    TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir))
-
-                result = await command(
-                    'bash',
-                    '-c',
-                    self._settings.command,
-                    cwd=work_dir,
-                    env=env,
-                    allow_error=True)
-
-                summary_path = os.path.join(work_dir, self._settings.summary_path)
-
-                try:
-                    summary = read_file(summary_path)
-                except FileNotFoundError:
-                    log(f'Warning: Summary file {summary_path} not found.')
-
-                    summary = None
-
-            self._results_by_tree_id[task.tree_id] = \
-                ToxicResult(not result.code, summary)
-
+            self._results_by_tree_id[task.tree_id] = result
             self._update_labels_event.set()
 
-    async def _get_label(self, commit_id, distance):
-        # Results are cached by the tree ID, but testing a tree requires the
-        # commit ID.
-        tree_id = await self._commits_by_id[commit_id].get_tree_id()
-        result = self._results_by_tree_id.get(tree_id)
-
-        if result is None:
-            self._task_queue.put_nowait(ToxicTask(distance, tree_id, commit_id))
-            self._results_by_tree_id[tree_id] = result = ...
-
+    def _get_label(self, result):
         if result is ...:
             label = self._settings.labels_by_state[TreeState.pending]
         else:
@@ -170,13 +163,23 @@ class Toxic:
 
         return label
 
-    async def _check_refs(self):
+    async def _apply_labels(self):
         labels_by_commit_id = {}
 
         for commit_id, distance in await self._get_reachable_commits():
             if distance < self._settings.max_distance:
-                labels_by_commit_id[commit_id] = \
-                    await self._get_label(commit_id, distance)
+                tree_id = await self._commits_by_id[commit_id].get_tree_id()
+                result = self._results_by_tree_id.get(tree_id)
+
+                if result is None:
+                    # Results are cached by the tree ID, but testing a tree
+                    # requires the commit ID.
+                    self._task_queue.put_nowait(
+                        ToxicTask(distance, tree_id, commit_id))
+
+                    result = self._results_by_tree_id[tree_id] = ...
+
+                labels_by_commit_id[commit_id] = self._get_label(result)
 
         await self._labelizer.set_labels(labels_by_commit_id)
 
@@ -219,7 +222,7 @@ class Toxic:
 
             while True:
                 self._write_tox_results()
-                await self._check_refs()
+                await self._apply_labels()
 
                 await self._update_labels_event.wait()
                 self._update_labels_event.clear()
