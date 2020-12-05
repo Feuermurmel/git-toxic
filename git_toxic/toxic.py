@@ -145,10 +145,14 @@ class Toxic:
     async def _worker(self, work_dir):
         while True:
             task = await self._task_queue.get()
-            result = await self._run_command(work_dir, task.commit_id)
 
-            self._results_by_tree_id[task.tree_id] = result
-            self._update_labels_event.set()
+            # Only run the task if it has not yet been cancelled or already
+            # run (a task may get scheduled multiple times).
+            if self._results_by_tree_id.get(task.tree_id) is ...:
+                result = await self._run_command(work_dir, task.commit_id)
+
+                self._results_by_tree_id[task.tree_id] = result
+                self._update_labels_event.set()
 
     def _get_label(self, result):
         if result is ...:
@@ -165,10 +169,12 @@ class Toxic:
 
     async def _apply_labels(self):
         labels_by_commit_id = {}
+        seen_tree_ids = set()
 
         for commit_id, distance in await self._get_reachable_commits():
             if distance < self._settings.max_distance:
                 tree_id = await self._commits_by_id[commit_id].get_tree_id()
+                seen_tree_ids.add(tree_id)
                 result = self._results_by_tree_id.get(tree_id)
 
                 if result is None:
@@ -180,6 +186,12 @@ class Toxic:
                     result = self._results_by_tree_id[tree_id] = ...
 
                 labels_by_commit_id[commit_id] = self._get_label(result)
+
+        # Remove entries for commits that we don't want to be labelled anymore
+        # so that the tasks are skipped.
+        for i in set(self._results_by_tree_id) - seen_tree_ids:
+            if self._results_by_tree_id[i] is ...:
+                del self._results_by_tree_id[i]
 
         await self._labelizer.set_labels(labels_by_commit_id)
 
