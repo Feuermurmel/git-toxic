@@ -1,3 +1,4 @@
+import pathlib
 import sys
 from argparse import ArgumentParser
 from asyncio.events import get_event_loop
@@ -30,11 +31,20 @@ async def read_settings(repository: Repository):
         else:
             return None
 
+    async def read_path(name, default):
+        value = await repository.read_config(name)
+
+        if value is None:
+            return default
+        else:
+            return pathlib.Path(value).expanduser()
+
     labels_by_state = {
         TreeState.pending: await read_label('pending', default_pending_label),
         TreeState.success: await read_label('success', None),
         TreeState.failure: await read_label('failure', default_failure_label)}
     max_distance = int(await repository.read_config('toxic.max-distance', 5))
+    work_dir = await read_path('toxic.work-dir', pathlib.Path(repository.path) / 'toxic')
     command = await repository.read_config('toxic.command')
     max_tasks = int(await repository.read_config('toxic.max-tasks', 1))
     summary_path = await repository.read_config('toxic.summary-path')
@@ -43,7 +53,14 @@ async def read_settings(repository: Repository):
     if command is None:
         raise UserError('No value for configuration toxic.command has been set.')
 
-    return Settings(labels_by_state, max_distance, command, max_tasks, summary_path, history_limit)
+    return Settings(
+        labels_by_state,
+        max_distance,
+        work_dir,
+        command,
+        max_tasks,
+        summary_path,
+        history_limit)
 
 
 async def main(clear: bool):

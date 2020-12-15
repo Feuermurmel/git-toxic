@@ -1,4 +1,5 @@
 import os
+import pathlib
 from asyncio import ensure_future, Event
 from asyncio.queues import PriorityQueue
 from asyncio.tasks import gather
@@ -45,6 +46,7 @@ class ToxicResult(NamedTuple):
 class Settings(NamedTuple):
     labels_by_state: dict
     max_distance: int
+    work_dir: pathlib.Path
     command: str
     max_tasks: int
     summary_path: Optional[str]
@@ -240,7 +242,7 @@ class Toxic:
                 self._update_labels_event.clear()
 
         worker_tasks = [
-            self._worker(os.path.join(self._repository.path, f'toxic/worker-{i}'))
+            self._worker(str(self._settings.work_dir / f'worker-{i}'))
             for i in range(self._settings.max_tasks)]
 
         await gather(watch_dir(), process_events(), *worker_tasks)
