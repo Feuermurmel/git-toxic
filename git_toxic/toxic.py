@@ -102,7 +102,7 @@ class Toxic:
         for k, v in (await self._labelizer.get_non_label_refs()).items():
             if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
                 if self._settings.history_limit is None:
-                    refs_args = ['--first-parent', v]
+                    refs_args = [v]
                 else:
                     # Exclude commits from which the history limit commit is
                     # not reachable.
