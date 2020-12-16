@@ -88,6 +88,9 @@ class Toxic:
 
         self._commits_by_id = DefaultDict(partial(Commit, self))
 
+        # Caches the results of _rev_list().
+        self._rev_lists_by_ref_commit_id = {}
+
     async def _get_reachable_commits(self):
         """
         Collects all commits reachable from any refs which are not created by
@@ -101,24 +104,34 @@ class Toxic:
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
             if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
-                def iter_rev_list_args():
-                    if self._settings.history_limit:
-                        yield '--ancestry-path'
-
-                    yield v
-
-                    # Exclude commits from which the history limit commits are
-                    # not reachable.
-                    for i in self._settings.history_limit:
-                        yield f'^{i}'
-
-                for i, x in enumerate(
-                        await self._repository.rev_list(*iter_rev_list_args())):
+                for i, x in enumerate(await self._rev_list(v)):
                     # TODO: The index is not really the distance when merges
                     #  are involved.
                     distances[x] = min(distances.get(x, inf), i)
 
         return [*distances.items()]
+
+    async def _rev_list(self, ref_commit_id):
+        result = self._rev_lists_by_ref_commit_id.get(ref_commit_id)
+
+        if result is None:
+            def iter_rev_list_args():
+                if self._settings.history_limit:
+                    yield '--ancestry-path'
+
+                yield ref_commit_id
+
+                # Exclude commits from which the history limit commits are
+                # not reachable.
+                for i in self._settings.history_limit:
+                    yield f'^{i}'
+
+
+            self._rev_lists_by_ref_commit_id[ref_commit_id] = \
+                result = \
+                await self._repository.rev_list(*iter_rev_list_args())
+
+        return result
 
     async def _run_command(self, work_dir, commit_id):
         log(f'Running command for commit {commit_id[:7]} ...')
