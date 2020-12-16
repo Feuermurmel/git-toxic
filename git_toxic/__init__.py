@@ -33,6 +33,9 @@ async def read_settings(repository: Repository):
         else:
             return default
 
+    async def read_list(name, type, default=None):
+        return await read(name, lambda x: [type(i) for i in x.split()], default)
+
     async def read_label(state, default):
         return await read('toxic.label-' + state, str, default)
 
@@ -48,7 +51,7 @@ async def read_settings(repository: Repository):
     command = await read('toxic.command', str)
     max_tasks = await read('toxic.max-tasks', int, 1)
     summary_path = await read('toxic.summary-path', str, None)
-    history_limit = await read('toxic.history-limit', str, None)
+    history_limit = await read_list('toxic.history-limit', str, None)
 
     return Settings(
         labels_by_state,

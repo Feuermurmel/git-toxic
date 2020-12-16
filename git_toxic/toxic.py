@@ -7,7 +7,7 @@ from collections import UserDict
 from functools import partial
 from json import loads, dumps
 from math import inf
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, List
 
 from git_toxic.git import Repository
 from git_toxic.labels import Labelizer, TreeState
@@ -50,7 +50,7 @@ class Settings(NamedTuple):
     command: str
     max_tasks: int
     summary_path: Optional[str]
-    history_limit: Optional[str]
+    history_limit: List[str]
 
 
 class DefaultDict(UserDict):
@@ -101,19 +101,24 @@ class Toxic:
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
             if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
-                if self._settings.history_limit is None:
-                    refs_args = [v]
-                else:
-                    # Exclude commits from which the history limit commit is
-                    # not reachable.
-                    refs_args = ['--ancestry-path', v, f'^{self._settings.history_limit}']
+                def iter_rev_list_args():
+                    if self._settings.history_limit:
+                        yield '--ancestry-path'
 
-                for i, x in enumerate(await self._repository.rev_list(*refs_args)):
+                    yield v
+
+                    # Exclude commits from which the history limit commits are
+                    # not reachable.
+                    for i in self._settings.history_limit:
+                        yield f'^{i}'
+
+                for i, x in enumerate(
+                        await self._repository.rev_list(*iter_rev_list_args())):
                     # TODO: The index is not really the distance when merges
                     #  are involved.
                     distances[x] = min(distances.get(x, inf), i)
 
-        return [(k, v) for k, v in distances.items()]
+        return [*distances.items()]
 
     async def _run_command(self, work_dir, commit_id):
         log(f'Running command for commit {commit_id[:7]} ...')
