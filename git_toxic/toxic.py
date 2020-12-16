@@ -45,7 +45,7 @@ class ToxicResult(NamedTuple):
 
 class Settings(NamedTuple):
     labels_by_state: dict
-    max_distance: int
+    max_distance: Optional[int]
     work_dir: pathlib.Path
     command: str
     max_tasks: int
@@ -174,7 +174,8 @@ class Toxic:
         seen_tree_ids = set()
 
         for commit_id, distance in await self._get_reachable_commits():
-            if distance < self._settings.max_distance:
+            if self._settings.max_distance is None \
+                    or distance < self._settings.max_distance:
                 tree_id = await self._commits_by_id[commit_id].get_tree_id()
                 seen_tree_ids.add(tree_id)
                 result = self._results_by_tree_id.get(tree_id)

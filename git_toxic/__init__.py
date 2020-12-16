@@ -43,7 +43,7 @@ async def read_settings(repository: Repository):
         TreeState.pending: await read_label('pending', default_pending_label),
         TreeState.success: await read_label('success', None),
         TreeState.failure: await read_label('failure', default_failure_label)}
-    max_distance = await read('toxic.max-distance', int, 5)
+    max_distance = await read('toxic.max-distance', int, None)
     work_dir = await read_path('toxic.work-dir', pathlib.Path(repository.path) / 'toxic')
     command = await read('toxic.command', str)
     max_tasks = await read('toxic.max-tasks', int, 1)
