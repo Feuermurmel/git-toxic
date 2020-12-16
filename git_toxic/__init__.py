@@ -23,35 +23,32 @@ def parse_args():
 
 
 async def read_settings(repository: Repository):
-    async def read_label(state, default):
-        value = await repository.read_config('toxic.label-' + state, default)
-
-        if value:
-            return value
-        else:
-            return None
-
-    async def read_path(name, default):
+    async def read(name, type, default=...):
         value = await repository.read_config(name)
 
-        if value is None:
-            return default
+        if value is not None:
+            return type(value)
+        elif default is ...:
+            raise UserError(f'No value for configuration {name} has been set.')
         else:
-            return pathlib.Path(value).expanduser()
+            return default
+
+    async def read_label(state, default):
+        return await read('toxic.label-' + state, str, default)
+
+    async def read_path(name, default):
+        return (await read(name, pathlib.Path, default)).expanduser()
 
     labels_by_state = {
         TreeState.pending: await read_label('pending', default_pending_label),
         TreeState.success: await read_label('success', None),
         TreeState.failure: await read_label('failure', default_failure_label)}
-    max_distance = int(await repository.read_config('toxic.max-distance', 5))
+    max_distance = await read('toxic.max-distance', int, 5)
     work_dir = await read_path('toxic.work-dir', pathlib.Path(repository.path) / 'toxic')
-    command = await repository.read_config('toxic.command')
-    max_tasks = int(await repository.read_config('toxic.max-tasks', 1))
-    summary_path = await repository.read_config('toxic.summary-path')
-    history_limit = await repository.read_config('toxic.history-limit')
-
-    if command is None:
-        raise UserError('No value for configuration toxic.command has been set.')
+    command = await read('toxic.command', str)
+    max_tasks = await read('toxic.max-tasks', int, 1)
+    summary_path = await read('toxic.summary-path', str, None)
+    history_limit = await read('toxic.history-limit', str, None)
 
     return Settings(
         labels_by_state,
@@ -84,4 +81,3 @@ def script_main():
     except UserError as e:
         log(f'error: {e}')
         sys.exit(2)
-

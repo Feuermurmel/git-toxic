@@ -53,7 +53,7 @@ class Repository:
     async def delete_ref(self, name):
         await self._command('update-ref', '-d', name)
 
-    async def read_config(self, name, default=None):
+    async def read_config(self, name):
         result = await self._command_lines('config', name, allow_error=True)
 
         if result:
@@ -61,7 +61,7 @@ class Repository:
 
             return value
         else:
-            return default
+            return None
 
     async def export_to_dir(self, commit_id, dir):
         subprocess.check_call(['git', 'clone', self.path, dir])
