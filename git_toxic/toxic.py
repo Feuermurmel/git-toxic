@@ -11,7 +11,7 @@ from typing import NamedTuple, Optional, List
 
 from git_toxic.git import Repository
 from git_toxic.labels import Labelizer, TreeState
-from git_toxic.util import command, DirWatcher, log, read_file, write_file, \
+from git_toxic.util import command, dir_watcher, log, read_file, write_file, \
     cleaned_up_directory
 
 
@@ -245,9 +245,11 @@ class Toxic:
         self._read_tox_results()
 
         async def watch_dir():
-            async with DirWatcher(os.path.join(self._repository.path, 'refs')) as watcher:
+            refs_path = os.path.join(self._repository.path, 'refs')
+
+            async with dir_watcher(refs_path) as watcher_fn:
                 while True:
-                    await watcher()
+                    await watcher_fn()
                     self._update_labels_event.set()
 
         async def process_events():

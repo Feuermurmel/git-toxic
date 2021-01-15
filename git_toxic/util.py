@@ -1,9 +1,13 @@
+import asyncio
 import shutil
 import sys
 import os
-from contextlib import contextmanager
-from asyncio import Event, create_subprocess_exec, ensure_future
+import threading
+from contextlib import contextmanager, asynccontextmanager
+from asyncio import Event, create_subprocess_exec
 from asyncio.subprocess import PIPE
+
+import fswatch.libfswatch
 
 
 def log(message):
@@ -79,31 +83,49 @@ def cleaned_up_directory(path):
     shutil.rmtree(path)
 
 
-class DirWatcher:
-    def __init__(self, dir):
-        self._dir = dir
-        self._process = None
-        self._target_future = None
+async def join_thread(thread):
+    loop = asyncio.get_running_loop()
+    future = asyncio.Future()
 
-    async def __aenter__(self):
-        async def target():
-            while True:
-                await self._process.stdout.readline()
-                event.set()
+    def target():
+        thread.join()
+        loop.call_soon_threadsafe(future.set_result, None)
 
-        async def watcher():
-            await event.wait()
-            event.clear()
+    threading.Thread(target=target, daemon=True).start()
 
-        event = Event()
+    await future
 
-        self._process = \
-            await create_subprocess_exec('fsevents', '-b', self._dir, stdout=PIPE)
-        self._target_future = ensure_future(target())
 
-        return watcher
+class _Monitor(fswatch.Monitor):
+    def start(self):
+        fswatch.libfswatch.fsw_start_monitor(self.handle)
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._target_future.cancel()
-        self._process.kill()
-        await self._process.wait()
+    def stop(self):
+        fswatch.libfswatch.fsw_stop_monitor(self.handle)
+
+
+@asynccontextmanager
+async def dir_watcher(dir_path):
+    loop = asyncio.get_running_loop()
+    event = Event()
+
+    async def watcher_fn():
+        await event.wait()
+        event.clear()
+
+    def monitor_callback(path, evt_time, flags, flags_num, event_num):
+        loop.call_soon_threadsafe(event.set)
+
+    monitor = _Monitor()
+    monitor.add_path(dir_path)
+    monitor.set_recursive()
+    monitor.set_callback(monitor_callback)
+
+    thread = threading.Thread(target=monitor.start, daemon=True)
+    thread.start()
+
+    try:
+        yield watcher_fn
+    finally:
+        monitor.stop()
+        await join_thread(thread)
