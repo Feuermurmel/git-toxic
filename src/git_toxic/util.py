@@ -1,17 +1,19 @@
 import asyncio
+import os
 import shutil
 import sys
-import os
 import threading
-from contextlib import contextmanager, asynccontextmanager
-from asyncio import Event, create_subprocess_exec
+from asyncio import Event
+from asyncio import create_subprocess_exec
 from asyncio.subprocess import PIPE
+from contextlib import asynccontextmanager
+from contextlib import contextmanager
 
 import fswatch.libfswatch
 
 
 def log(message):
-    print(f'git toxic: {message}', file=sys.stderr, flush=True)
+    print(f"git toxic: {message}", file=sys.stderr, flush=True)
 
 
 class UserError(Exception):
@@ -19,18 +21,18 @@ class UserError(Exception):
 
 
 def read_file(path):
-    with open(path, 'r', encoding='utf-8') as file:
+    with open(path, "r", encoding="utf-8") as file:
         return file.read()
 
 
 def write_file(path, content: str):
-    temp_path = path + '~'
+    temp_path = path + "~"
     dir_path = os.path.dirname(path)
 
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
-    with open(temp_path, 'w', encoding='utf-8') as file:
+    with open(temp_path, "w", encoding="utf-8") as file:
         file.write(content)
         os.fsync(file.fileno())
 
@@ -44,7 +46,9 @@ class CommandResult:
         self.err = err
 
 
-async def command(*args, use_stdout=False, use_stderr=False, allow_error=False, **kwargs):
+async def command(
+    *args, use_stdout=False, use_stderr=False, allow_error=False, **kwargs
+):
     if use_stdout:
         stdout = PIPE
     else:
@@ -55,7 +59,9 @@ async def command(*args, use_stdout=False, use_stderr=False, allow_error=False, 
     else:
         stderr = sys.stderr
 
-    process = await create_subprocess_exec(*args, stdout=stdout, stderr=stderr, **kwargs)
+    process = await create_subprocess_exec(
+        *args, stdout=stdout, stderr=stderr, **kwargs
+    )
     out, err = await process.communicate()
     res = CommandResult(process.returncode, out, out)
 

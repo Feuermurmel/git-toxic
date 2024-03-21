@@ -1,37 +1,46 @@
 import os
 import pathlib
-from asyncio import ensure_future, Event
+from asyncio import Event
+from asyncio import ensure_future
 from asyncio.queues import PriorityQueue
 from asyncio.tasks import gather
 from collections import UserDict
 from functools import partial
-from json import loads, dumps
+from json import dumps
+from json import loads
 from math import inf
-from typing import NamedTuple, Optional, List
+from typing import List
+from typing import NamedTuple
+from typing import Optional
 
 from git_toxic.git import Repository
-from git_toxic.labels import Labelizer, TreeState
-from git_toxic.util import command, dir_watcher, log, read_file, write_file, \
-    cleaned_up_directory
+from git_toxic.labels import Labelizer
+from git_toxic.labels import TreeState
+from git_toxic.util import cleaned_up_directory
+from git_toxic.util import command
+from git_toxic.util import dir_watcher
+from git_toxic.util import log
+from git_toxic.util import read_file
+from git_toxic.util import write_file
 
+_tox_state_file_path = "toxic/results.json"
 
-_tox_state_file_path = 'toxic/results.json'
-
-_space = chr(0xa0)
+_space = chr(0xA0)
 
 
 class Commit:
-    def __init__(self, toxic: 'Toxic', commit_id):
+    def __init__(self, toxic: "Toxic", commit_id):
         self._toxic = toxic
         self._commit_id = commit_id
         self._tree_id_future = None
 
     async def get_tree_id(self):
         if self._tree_id_future is None:
+
             async def get():
                 info = await self._toxic._repository.get_commit_info(self._commit_id)
 
-                return info['tree']
+                return info["tree"]
 
             self._tree_id_future = ensure_future(get())
 
@@ -99,11 +108,11 @@ class Toxic:
         Returns a list of tuples (commit id, distance), where distance is the
         distance to the nearest child to which a ref points.
         """
-        allowed_ref_dirs = ['heads', 'remotes']
+        allowed_ref_dirs = ["heads", "remotes"]
         distances = {}
 
         for k, v in (await self._labelizer.get_non_label_refs()).items():
-            if any(k.startswith(f'refs/{i}/') for i in allowed_ref_dirs):
+            if any(k.startswith(f"refs/{i}/") for i in allowed_ref_dirs):
                 for i, x in enumerate(await self._rev_list(v)):
                     # TODO: The index is not really the distance when merges
                     #  are involved.
@@ -115,48 +124,50 @@ class Toxic:
         result = self._rev_lists_by_ref_commit_id.get(ref_commit_id)
 
         if result is None:
+
             def iter_rev_list_args():
                 if self._settings.history_limit:
-                    yield '--ancestry-path'
+                    yield "--ancestry-path"
 
                 yield ref_commit_id
 
                 # Exclude commits from which the history limit commits are
                 # not reachable.
                 for i in self._settings.history_limit:
-                    yield f'^{i}'
+                    yield f"^{i}"
 
-
-            self._rev_lists_by_ref_commit_id[ref_commit_id] = \
-                result = \
+            self._rev_lists_by_ref_commit_id[ref_commit_id] = result = (
                 await self._repository.rev_list(*iter_rev_list_args())
+            )
 
         return result
 
     async def _run_command(self, work_dir, commit_id):
-        log(f'Running command for commit {commit_id[:7]} ...')
+        log(f"Running command for commit {commit_id[:7]} ...")
 
         with cleaned_up_directory(work_dir):
             await self._repository.export_to_dir(commit_id, work_dir)
 
             env = dict(
                 os.environ,
-                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir))
+                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
+            )
 
             result = await command(
-                'bash',
-                '-c',
+                "bash",
+                "-c",
                 self._settings.command,
                 cwd=work_dir,
                 env=env,
-                allow_error=True)
+                allow_error=True,
+            )
 
             summary_path = os.path.join(work_dir, self._settings.summary_path)
 
             try:
                 summary = read_file(summary_path)
             except FileNotFoundError:
-                log(f'Warning: Summary file {summary_path} not found.')
+                log(f"Warning: Summary file {summary_path} not found.")
 
                 summary = None
 
@@ -192,8 +203,10 @@ class Toxic:
         seen_tree_ids = set()
 
         for commit_id, distance in await self._get_reachable_commits():
-            if self._settings.max_distance is None \
-                    or distance < self._settings.max_distance:
+            if (
+                self._settings.max_distance is None
+                or distance < self._settings.max_distance
+            ):
                 tree_id = await self._commits_by_id[commit_id].get_tree_id()
                 seen_tree_ids.add(tree_id)
                 result = self._results_by_tree_id.get(tree_id)
@@ -201,8 +214,7 @@ class Toxic:
                 if result is None:
                     # Results are cached by the tree ID, but testing a tree
                     # requires the commit ID.
-                    self._task_queue.put_nowait(
-                        ToxicTask(distance, tree_id, commit_id))
+                    self._task_queue.put_nowait(ToxicTask(distance, tree_id, commit_id))
 
                     result = self._results_by_tree_id[tree_id] = ...
 
@@ -224,14 +236,15 @@ class Toxic:
             return
 
         self._results_by_tree_id = {
-            i['tree_id']: ToxicResult(i['success'], i['summary'])
-            for i in data}
+            i["tree_id"]: ToxicResult(i["success"], i["summary"]) for i in data
+        }
 
     def _write_tox_results(self):
         data = [
             dict(tree_id=k, success=v.success, summary=v.summary)
             for k, v in self._results_by_tree_id.items()
-            if v is not ...]
+            if v is not ...
+        ]
 
         path = os.path.join(self._repository.path, _tox_state_file_path)
 
@@ -245,7 +258,7 @@ class Toxic:
         self._read_tox_results()
 
         async def watch_dir():
-            refs_path = os.path.join(self._repository.path, 'refs')
+            refs_path = os.path.join(self._repository.path, "refs")
 
             async with dir_watcher(refs_path) as watcher_fn:
                 while True:
@@ -253,7 +266,7 @@ class Toxic:
                     self._update_labels_event.set()
 
         async def process_events():
-            log('Waiting for changes ...')
+            log("Waiting for changes ...")
 
             while True:
                 self._write_tox_results()
@@ -263,8 +276,9 @@ class Toxic:
                 self._update_labels_event.clear()
 
         worker_tasks = [
-            self._worker(str(self._settings.work_dir / f'worker-{i}'))
-            for i in range(self._settings.max_tasks)]
+            self._worker(str(self._settings.work_dir / f"worker-{i}"))
+            for i in range(self._settings.max_tasks)
+        ]
 
         await gather(watch_dir(), process_events(), *worker_tasks)
 
