@@ -1,9 +1,5 @@
 *.pyc
-/*.egg-info/
-/venv/
-/sandbox/
-/build/
-/dist/
-/.tox/
-/.cache/
-/.pytest/
+*.egg-info
+*.whl
+/venv
+/build

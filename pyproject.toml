@@ -1,0 +1,10 @@
+[project]
+name = "git_toxic"
+version = "0.1.0"
+dependencies = ["pyfswatch @ git+https://github.com/paul-nameless/pyfswatch"]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+git-toxic = "git_toxic:entry_point"

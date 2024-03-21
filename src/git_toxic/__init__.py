@@ -74,7 +74,7 @@ async def main(clear: bool):
         await toxic.run()
 
 
-def script_main():
+def entry_point():
     try:
         with closing(get_event_loop()) as loop:
             loop.run_until_complete(main(**vars(parse_args())))
