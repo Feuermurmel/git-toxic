@@ -155,7 +155,7 @@ class Toxic:
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         with log_file_path.open("w") as log_file:
-            self._repository.clone_to_dir(commit_id, work_dir, log_file)
+            await self._repository.clone_to_dir(commit_id, work_dir, log_file)
 
             env = dict(
                 os.environ,
@@ -163,9 +163,7 @@ class Toxic:
             )
 
             result = await command(
-                "bash",
-                "-c",
-                self._settings.command,
+                ["bash", "-c", self._settings.command],
                 cwd=work_dir,
                 env=env,
                 allow_error=True,

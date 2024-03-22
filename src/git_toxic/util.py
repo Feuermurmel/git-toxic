@@ -38,14 +38,14 @@ class CommandResult:
         self.out = out
 
 
-async def command(*args, use_stdout=False, allow_error=False, **kwargs):
+async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
     create_subprocess_exec_kwargs = dict()
 
     if use_stdout:
         create_subprocess_exec_kwargs.update(stdout=PIPE)
 
     process = await create_subprocess_exec(
-        *args, **create_subprocess_exec_kwargs, **kwargs
+        *cmd, **create_subprocess_exec_kwargs, **kwargs
     )
     out, _ = await process.communicate()
     res = CommandResult(process.returncode, out)
@@ -56,8 +56,8 @@ async def command(*args, use_stdout=False, allow_error=False, **kwargs):
     return res
 
 
-async def command_lines(*args, **kwargs):
-    result = command(*args, use_stdout=True, **kwargs)
+async def command_lines(cmd, **kwargs):
+    result = command(cmd, use_stdout=True, **kwargs)
 
     return (await result).out.decode().splitlines()
 

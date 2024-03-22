@@ -1,5 +1,4 @@
 import os
-import subprocess
 from pathlib import Path
 
 from git_toxic.util import command
@@ -11,19 +10,19 @@ class Repository:
         self.path = path
 
     def _command_args_prefix(self):
-        return "git", "--git-dir", self.path
+        return ["git", "--git-dir", self.path]
 
-    async def _command(self, *args, **kwargs):
-        return await command(*self._command_args_prefix(), *args, **kwargs)
+    async def _command(self, cmd, **kwargs):
+        return await command([*self._command_args_prefix(), *cmd], **kwargs)
 
-    async def _command_lines(self, *args, **kwargs):
-        return await command_lines(*self._command_args_prefix(), *args, **kwargs)
+    async def _command_lines(self, cmd, **kwargs):
+        return await command_lines([*self._command_args_prefix(), *cmd], **kwargs)
 
     async def rev_list(self, *refs):
-        return await self._command_lines("rev-list", *refs)
+        return await self._command_lines(["rev-list", *refs])
 
     async def show_ref(self):
-        list = await self._command_lines("show-ref")
+        list = await self._command_lines(["show-ref"])
 
         def iter_entries():
             for i in list:
@@ -38,7 +37,7 @@ class Repository:
         return dict(iter_entries())
 
     async def get_commit_info(self, commit_id):
-        lines = await self._command_lines("cat-file", "commit", commit_id)
+        lines = await self._command_lines(["cat-file", "commit", commit_id])
 
         def iter_entries():
             for i in lines:
@@ -50,13 +49,13 @@ class Repository:
         return dict(iter_entries())
 
     async def update_ref(self, name, commit_id):
-        await self._command("update-ref", name, commit_id)
+        await self._command(["update-ref", name, commit_id])
 
     async def delete_ref(self, name):
-        await self._command("update-ref", "-d", name)
+        await self._command(["update-ref", "-d", name])
 
     async def read_config(self, name):
-        result = await self._command_lines("config", name, allow_error=True)
+        result = await self._command_lines(["config", name], allow_error=True)
 
         if result:
             (value,) = result
@@ -65,31 +64,29 @@ class Repository:
         else:
             return None
 
-    def clone_to_dir(self, commit_id, dir, stdouterr):
+    async def clone_to_dir(self, commit_id, dir, stdouterr):
         Path(dir).mkdir(parents=True, exist_ok=True)
 
-        subprocess.check_call(
-            ["git", "init"], cwd=dir, stdout=stdouterr, stderr=stdouterr
-        )
-        subprocess.check_call(
+        await command(["git", "init"], cwd=dir, stdout=stdouterr, stderr=stdouterr)
+        await command(
             ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"],
             cwd=dir,
             stdout=stdouterr,
             stderr=stdouterr,
         )
-        subprocess.check_call(
+        await command(
             ["git", "checkout", "-f", commit_id],
             cwd=dir,
             stdout=stdouterr,
             stderr=stdouterr,
         )
-        subprocess.check_call(
+        await command(
             ["git", "clean", "-df"], cwd=dir, stdout=stdouterr, stderr=stdouterr
         )
 
     @classmethod
     async def from_dir(cls, path):
-        (line,) = await command_lines("git", "rev-parse", "--git-dir", cwd=path)
+        (line,) = await command_lines(["git", "rev-parse", "--git-dir"], cwd=path)
 
         return cls(os.path.abspath(line))
 
