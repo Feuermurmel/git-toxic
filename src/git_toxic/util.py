@@ -1,6 +1,5 @@
 import asyncio
 import os
-import sys
 import threading
 from asyncio import Event
 from asyncio import create_subprocess_exec
@@ -34,30 +33,22 @@ def write_file(path, content: str):
 
 
 class CommandResult:
-    def __init__(self, code: int, out: bytes, err: bytes):
+    def __init__(self, code: int, out: bytes):
         self.code = code
         self.out = out
-        self.err = err
 
 
-async def command(
-    *args, use_stdout=False, use_stderr=False, allow_error=False, **kwargs
-):
+async def command(*args, use_stdout=False, allow_error=False, **kwargs):
+    create_subprocess_exec_kwargs = dict()
+
     if use_stdout:
-        stdout = PIPE
-    else:
-        stdout = sys.stdout
-
-    if use_stderr:
-        stderr = PIPE
-    else:
-        stderr = sys.stderr
+        create_subprocess_exec_kwargs.update(stdout=PIPE)
 
     process = await create_subprocess_exec(
-        *args, stdout=stdout, stderr=stderr, **kwargs
+        *args, **create_subprocess_exec_kwargs, **kwargs
     )
-    out, err = await process.communicate()
-    res = CommandResult(process.returncode, out, out)
+    out, _ = await process.communicate()
+    res = CommandResult(process.returncode, out)
 
     if not allow_error:
         assert not res.code

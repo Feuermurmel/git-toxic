@@ -6,6 +6,7 @@ from asyncio import ensure_future
 from asyncio.queues import PriorityQueue
 from asyncio.tasks import gather
 from collections import UserDict
+from datetime import datetime
 from functools import partial
 from json import dumps
 from json import loads
@@ -142,34 +143,48 @@ class Toxic:
         return result
 
     async def _run_command(self, work_dir, commit_id):
-        logging.info(f"Running command for commit {commit_id[:7]} ...")
+        worker_id = pathlib.Path(work_dir).name
 
-        self._repository.clone_to_dir(commit_id, work_dir)
+        logging.info(f"{worker_id}: Starting job for commit {commit_id[:7]}.")
 
-        env = dict(
-            os.environ,
-            TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
+        log_file_path = (
+            self._settings.work_dir
+            / "logs"
+            / f"{commit_id}-{datetime.now():%Y-%m-%d-%H%M%S}.txt"
         )
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        result = await command(
-            "bash",
-            "-c",
-            self._settings.command,
-            cwd=work_dir,
-            env=env,
-            allow_error=True,
-        )
+        with log_file_path.open("w") as log_file:
+            self._repository.clone_to_dir(commit_id, work_dir, log_file)
 
-        summary_path = os.path.join(work_dir, self._settings.summary_path)
+            env = dict(
+                os.environ,
+                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
+            )
 
-        try:
-            summary = read_file(summary_path)
-        except FileNotFoundError:
-            logging.warning(f"Warning: Summary file {summary_path} not found.")
+            result = await command(
+                "bash",
+                "-c",
+                self._settings.command,
+                cwd=work_dir,
+                env=env,
+                allow_error=True,
+                stdout=log_file,
+                stderr=log_file,
+            )
 
-            summary = None
+            summary_path = os.path.join(work_dir, self._settings.summary_path)
 
-        return ToxicResult(not result.code, summary)
+            try:
+                summary = read_file(summary_path)
+            except FileNotFoundError:
+                logging.warning(
+                    f"{worker_id}: warning: Summary file {summary_path} not found."
+                )
+
+                summary = None
+
+            return ToxicResult(not result.code, summary)
 
     async def _worker(self, work_dir):
         while True:
@@ -264,7 +279,7 @@ class Toxic:
                     self._update_labels_event.set()
 
         async def process_events():
-            logging.info("Waiting for changes ...")
+            logging.info("Waiting for changes")
 
             while True:
                 self._write_tox_results()

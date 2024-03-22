@@ -65,15 +65,27 @@ class Repository:
         else:
             return None
 
-    def clone_to_dir(self, commit_id, dir):
+    def clone_to_dir(self, commit_id, dir, stdouterr):
         Path(dir).mkdir(parents=True, exist_ok=True)
 
-        subprocess.check_call(["git", "init"], cwd=dir)
         subprocess.check_call(
-            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"], cwd=dir
+            ["git", "init"], cwd=dir, stdout=stdouterr, stderr=stdouterr
         )
-        subprocess.check_call(["git", "checkout", "-f", commit_id], cwd=dir)
-        subprocess.check_call(["git", "clean", "-df"], cwd=dir)
+        subprocess.check_call(
+            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"],
+            cwd=dir,
+            stdout=stdouterr,
+            stderr=stdouterr,
+        )
+        subprocess.check_call(
+            ["git", "checkout", "-f", commit_id],
+            cwd=dir,
+            stdout=stdouterr,
+            stderr=stdouterr,
+        )
+        subprocess.check_call(
+            ["git", "clean", "-df"], cwd=dir, stdout=stdouterr, stderr=stdouterr
+        )
 
     @classmethod
     async def from_dir(cls, path):
