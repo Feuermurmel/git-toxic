@@ -1,3 +1,4 @@
+import logging
 import pathlib
 import sys
 from argparse import ArgumentParser
@@ -9,7 +10,6 @@ from git_toxic.toxic import Settings
 from git_toxic.toxic import Toxic
 from git_toxic.toxic import TreeState
 from git_toxic.util import UserError
-from git_toxic.util import log
 
 # Successful commits are not labelled by default.
 default_failure_label = "\U0001f53a"
@@ -81,12 +81,14 @@ async def main(clear: bool):
 
 
 def entry_point():
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     try:
         with closing(get_event_loop()) as loop:
             loop.run_until_complete(main(**vars(parse_args())))
     except KeyboardInterrupt:
-        log("Operation interrupted.")
+        logging.error("Operation interrupted.")
         sys.exit(1)
     except UserError as e:
-        log(f"error: {e}")
+        logging.error(f"error: {e}")
         sys.exit(2)

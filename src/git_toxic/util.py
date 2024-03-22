@@ -10,10 +10,6 @@ from contextlib import asynccontextmanager
 import fswatch.libfswatch
 
 
-def log(message):
-    print(f"git toxic: {message}", file=sys.stderr, flush=True)
-
-
 class UserError(Exception):
     pass
 

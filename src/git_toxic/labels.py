@@ -1,8 +1,8 @@
 import enum
+import logging
 from itertools import count
 
 from git_toxic.git import Repository
-from git_toxic.util import log
 
 
 class TreeState(enum.Enum):
@@ -36,9 +36,9 @@ class Labelizer:
 
         if current_label != label:
             if label is None:
-                log(f"Removing label from commit {commit_id[:7]}.")
+                logging.info(f"Removing label from commit {commit_id[:7]}.")
             else:
-                log(f"Setting label of commit {commit_id[:7]} to {label}.")
+                logging.info(f"Setting label of commit {commit_id[:7]} to {label}.")
 
             if current_ref is not None:
                 await self._repository.delete_ref(current_ref)

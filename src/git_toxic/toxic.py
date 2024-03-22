@@ -1,3 +1,4 @@
+import logging
 import os
 import pathlib
 from asyncio import Event
@@ -18,7 +19,6 @@ from git_toxic.labels import Labelizer
 from git_toxic.labels import TreeState
 from git_toxic.util import command
 from git_toxic.util import dir_watcher
-from git_toxic.util import log
 from git_toxic.util import read_file
 from git_toxic.util import write_file
 
@@ -142,7 +142,7 @@ class Toxic:
         return result
 
     async def _run_command(self, work_dir, commit_id):
-        log(f"Running command for commit {commit_id[:7]} ...")
+        logging.info(f"Running command for commit {commit_id[:7]} ...")
 
         self._repository.clone_to_dir(commit_id, work_dir)
 
@@ -165,7 +165,7 @@ class Toxic:
         try:
             summary = read_file(summary_path)
         except FileNotFoundError:
-            log(f"Warning: Summary file {summary_path} not found.")
+            logging.warning(f"Warning: Summary file {summary_path} not found.")
 
             summary = None
 
@@ -264,7 +264,7 @@ class Toxic:
                     self._update_labels_event.set()
 
         async def process_events():
-            log("Waiting for changes ...")
+            logging.info("Waiting for changes ...")
 
             while True:
                 self._write_tox_results()
