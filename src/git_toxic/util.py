@@ -1,13 +1,11 @@
 import asyncio
 import os
-import shutil
 import sys
 import threading
 from asyncio import Event
 from asyncio import create_subprocess_exec
 from asyncio.subprocess import PIPE
 from contextlib import asynccontextmanager
-from contextlib import contextmanager
 
 import fswatch.libfswatch
 
@@ -75,18 +73,6 @@ async def command_lines(*args, **kwargs):
     result = command(*args, use_stdout=True, **kwargs)
 
     return (await result).out.decode().splitlines()
-
-
-@contextmanager
-def cleaned_up_directory(path):
-    if os.path.exists(path):
-        shutil.rmtree(path)
-
-    os.makedirs(path, exist_ok=True)
-
-    yield
-
-    shutil.rmtree(path)
 
 
 async def join_thread(thread):

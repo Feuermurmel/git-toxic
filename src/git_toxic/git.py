@@ -1,10 +1,9 @@
 import os
 import subprocess
+from pathlib import Path
 
 from git_toxic.util import command
 from git_toxic.util import command_lines
-from git_toxic.util import read_file
-from git_toxic.util import write_file
 
 
 class Repository:
@@ -66,9 +65,15 @@ class Repository:
         else:
             return None
 
-    async def export_to_dir(self, commit_id, dir):
-        subprocess.check_call(["git", "clone", self.path, dir])
-        subprocess.check_call(["git", "checkout", commit_id], cwd=dir)
+    def clone_to_dir(self, commit_id, dir):
+        Path(dir).mkdir(parents=True, exist_ok=True)
+
+        subprocess.check_call(["git", "init"], cwd=dir)
+        subprocess.check_call(
+            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"], cwd=dir
+        )
+        subprocess.check_call(["git", "checkout", "-f", commit_id], cwd=dir)
+        subprocess.check_call(["git", "clean", "-df"], cwd=dir)
 
     @classmethod
     async def from_dir(cls, path):

@@ -16,7 +16,6 @@ from typing import Optional
 from git_toxic.git import Repository
 from git_toxic.labels import Labelizer
 from git_toxic.labels import TreeState
-from git_toxic.util import cleaned_up_directory
 from git_toxic.util import command
 from git_toxic.util import dir_watcher
 from git_toxic.util import log
@@ -145,33 +144,32 @@ class Toxic:
     async def _run_command(self, work_dir, commit_id):
         log(f"Running command for commit {commit_id[:7]} ...")
 
-        with cleaned_up_directory(work_dir):
-            await self._repository.export_to_dir(commit_id, work_dir)
+        self._repository.clone_to_dir(commit_id, work_dir)
 
-            env = dict(
-                os.environ,
-                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
-            )
+        env = dict(
+            os.environ,
+            TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
+        )
 
-            result = await command(
-                "bash",
-                "-c",
-                self._settings.command,
-                cwd=work_dir,
-                env=env,
-                allow_error=True,
-            )
+        result = await command(
+            "bash",
+            "-c",
+            self._settings.command,
+            cwd=work_dir,
+            env=env,
+            allow_error=True,
+        )
 
-            summary_path = os.path.join(work_dir, self._settings.summary_path)
+        summary_path = os.path.join(work_dir, self._settings.summary_path)
 
-            try:
-                summary = read_file(summary_path)
-            except FileNotFoundError:
-                log(f"Warning: Summary file {summary_path} not found.")
+        try:
+            summary = read_file(summary_path)
+        except FileNotFoundError:
+            log(f"Warning: Summary file {summary_path} not found.")
 
-                summary = None
+            summary = None
 
-            return ToxicResult(not result.code, summary)
+        return ToxicResult(not result.code, summary)
 
     async def _worker(self, work_dir):
         while True:
