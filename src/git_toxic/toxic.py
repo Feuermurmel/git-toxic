@@ -150,8 +150,6 @@ class Toxic:
     async def _run_command(self, work_dir, commit_id):
         worker_id = Path(work_dir).name
 
-        logging.info(f"{worker_id}: Starting job for commit {commit_id[:7]}.")
-
         log_file_path = (
             self._settings.work_dir
             / "logs"
@@ -160,12 +158,16 @@ class Toxic:
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         with log_file_path.open("w") as log_file:
+            logging.info(f"{worker_id}: Creating checkout of commit {commit_id[:7]}.")
+
             await self._repository.clone_to_dir(commit_id, work_dir, log_file)
 
             env = dict(
                 os.environ,
                 TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
             )
+
+            logging.info(f"{worker_id}: Running {self._settings.command}.")
 
             result = await command(
                 ["bash", "-c", self._settings.command],
@@ -180,6 +182,11 @@ class Toxic:
 
             try:
                 summary = read_file(summary_path)
+
+                logging.info(
+                    f"{worker_id}: Completed with summary"
+                    f" \"{' '.join(summary.split())}\"."
+                )
             except FileNotFoundError:
                 logging.warning(
                     f"{worker_id}: warning: Summary file {summary_path} not found."
