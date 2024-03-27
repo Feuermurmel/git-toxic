@@ -1,18 +1,20 @@
+from __future__ import annotations
+
 import logging
 import os
-import pathlib
 from asyncio import Event
 from asyncio import ensure_future
 from asyncio.queues import PriorityQueue
 from asyncio.tasks import gather
 from collections import UserDict
+from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from json import dumps
 from json import loads
 from math import inf
+from pathlib import Path
 from typing import List
-from typing import NamedTuple
 from typing import Optional
 
 from git_toxic.git import Repository
@@ -47,15 +49,17 @@ class Commit:
         return await self._tree_id_future
 
 
-class ToxicResult(NamedTuple):
+@dataclass
+class ToxicResult:
     success: bool
     summary: Optional[str]
 
 
-class Settings(NamedTuple):
+@dataclass
+class Settings:
     labels_by_state: dict
     max_distance: Optional[int]
-    work_dir: pathlib.Path
+    work_dir: Path
     command: str
     max_tasks: int
     summary_path: Optional[str]
@@ -74,7 +78,8 @@ class DefaultDict(UserDict):
         return value
 
 
-class ToxicTask(NamedTuple):
+@dataclass(order=True)
+class ToxicTask:
     distance: int
     tree_id: str
     commit_id: str
@@ -143,7 +148,7 @@ class Toxic:
         return result
 
     async def _run_command(self, work_dir, commit_id):
-        worker_id = pathlib.Path(work_dir).name
+        worker_id = Path(work_dir).name
 
         logging.info(f"{worker_id}: Starting job for commit {commit_id[:7]}.")
 
