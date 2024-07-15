@@ -157,18 +157,18 @@ class Toxic:
         )
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
+        logging.info(f"{worker_id}: Creating checkout of commit {commit_id[:7]}.")
+
+        await self._repository.clone_to_dir(commit_id, work_dir)
+
+        env = dict(
+            os.environ,
+            TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
+        )
+
+        logging.info(f"{worker_id}: Running {self._settings.command}.")
+
         with log_file_path.open("w") as log_file:
-            logging.info(f"{worker_id}: Creating checkout of commit {commit_id[:7]}.")
-
-            await self._repository.clone_to_dir(commit_id, work_dir, log_file)
-
-            env = dict(
-                os.environ,
-                TOXIC_ORIG_GIT_DIR=os.path.relpath(self._repository.path, work_dir),
-            )
-
-            logging.info(f"{worker_id}: Running {self._settings.command}.")
-
             result = await command(
                 ["bash", "-c", self._settings.command],
                 cwd=work_dir,
@@ -178,23 +178,22 @@ class Toxic:
                 stderr=log_file,
             )
 
-            summary_path = os.path.join(work_dir, self._settings.summary_path)
+        summary_path = os.path.join(work_dir, self._settings.summary_path)
 
-            try:
-                summary = read_file(summary_path)
+        try:
+            summary = read_file(summary_path)
 
-                logging.info(
-                    f"{worker_id}: Completed with summary"
-                    f" \"{' '.join(summary.split())}\"."
-                )
-            except FileNotFoundError:
-                logging.warning(
-                    f"{worker_id}: warning: Summary file {summary_path} not found."
-                )
+            logging.info(
+                f"{worker_id}: Completed with summary \"{' '.join(summary.split())}\"."
+            )
+        except FileNotFoundError:
+            logging.warning(
+                f"{worker_id}: warning: Summary file {summary_path} not found."
+            )
 
-                summary = None
+            summary = None
 
-            return ToxicResult(not result.code, summary)
+        return ToxicResult(not result.code, summary)
 
     async def _worker(self, work_dir):
         while True:

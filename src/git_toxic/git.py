@@ -64,25 +64,15 @@ class Repository:
         else:
             return None
 
-    async def clone_to_dir(self, commit_id, dir, stdouterr):
+    async def clone_to_dir(self, commit_id, dir):
         Path(dir).mkdir(parents=True, exist_ok=True)
 
-        await command(["git", "init"], cwd=dir, stdout=stdouterr, stderr=stdouterr)
+        await command(["git", "init"], cwd=dir)
         await command(
-            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"],
-            cwd=dir,
-            stdout=stdouterr,
-            stderr=stdouterr,
+            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"], cwd=dir
         )
-        await command(
-            ["git", "checkout", "-f", commit_id],
-            cwd=dir,
-            stdout=stdouterr,
-            stderr=stdouterr,
-        )
-        await command(
-            ["git", "clean", "-df"], cwd=dir, stdout=stdouterr, stderr=stdouterr
-        )
+        await command(["git", "checkout", "-f", commit_id], cwd=dir)
+        await command(["git", "clean", "-df"], cwd=dir)
 
     @classmethod
     async def from_dir(cls, path):

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shlex
 import threading
 from asyncio import Event
 from asyncio import create_subprocess_exec
@@ -50,8 +51,8 @@ async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
     out, _ = await process.communicate()
     res = CommandResult(process.returncode, out)
 
-    if not allow_error:
-        assert not res.code
+    if not allow_error and res.code:
+        raise Exception(f"Command failed: ${shlex.join(cmd)}")
 
     return res
 
