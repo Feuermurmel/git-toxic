@@ -22,14 +22,14 @@ class Labelizer:
         self._repository = repository
 
         self._label_id_iter = count()
-        self._label_by_commit_id = {}
+        self._label_by_commit_id: dict[str, tuple[str, str]] = {}
 
-    def _get_label_suffix(self):
+    def _get_label_suffix(self) -> str:
         id = next(self._label_id_iter)
 
         return "".join(self._invisible_characters[int(i)] for i in f"{id:b}")
 
-    async def label_commit(self, commit_id, label):
+    async def label_commit(self, commit_id: str, label: str | None) -> None:
         current_label, current_ref = self._label_by_commit_id.get(
             commit_id, (None, None)
         )
@@ -51,23 +51,23 @@ class Labelizer:
                 await self._repository.update_ref(ref, commit_id)
                 self._label_by_commit_id[commit_id] = label, ref
 
-    async def set_labels(self, labels_by_commit_id):
+    async def set_labels(self, labels_by_commit_id: dict[str, str | None]) -> None:
         for k, v in labels_by_commit_id.items():
             await self.label_commit(k, v)
 
         for i in set(self._label_by_commit_id) - set(labels_by_commit_id):
             await self.label_commit(i, None)
 
-    async def remove_label_refs(self):
+    async def remove_label_refs(self) -> None:
         for i in await self._repository.show_ref():
             if self._is_label(i):
                 await self._repository.delete_ref(i)
 
-    async def get_non_label_refs(self):
+    async def get_non_label_refs(self) -> dict[str, str]:
         refs = await self._repository.show_ref()
 
         return {k: v for k, v in refs.items() if not self._is_label(k)}
 
     @classmethod
-    def _is_label(cls, ref):
+    def _is_label(cls, ref: str) -> bool:
         return ref[-1] in cls._invisible_characters

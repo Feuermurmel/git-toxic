@@ -4,10 +4,22 @@ version = "0.1.0"
 dependencies = ["pyfswatch @ git+https://github.com/paul-nameless/pyfswatch"]
 
 [project.optional-dependencies]
-dev = []
+dev = ["mypy"]
 
 [project.scripts]
 git-toxic = "git_toxic:entry_point"
+
+[tool.mypy]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+files = ["src"]
+strict = true
+warn_unreachable = true
+extra_checks = true
+enable_error_code = "possibly-undefined, redundant-expr, truthy-iterable, truthy-bool"
+
+[[tool.mypy.overrides]]
+module = ["fswatch.*"]
+ignore_missing_imports = true
 
 [tool.black]
 target-version = ["py312"]

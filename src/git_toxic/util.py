@@ -1,14 +1,19 @@
-import asyncio
 import logging
 import os
 import shlex
 import shutil
 import threading
 from asyncio import Event
+from asyncio import Future
 from asyncio import create_subprocess_exec
+from asyncio import get_running_loop
 from asyncio.subprocess import PIPE
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
+from typing import AsyncIterator
+from typing import Awaitable
 
 import fswatch.libfswatch
 
@@ -17,12 +22,12 @@ class UserError(Exception):
     pass
 
 
-def read_file(path):
+def read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as file:
         return file.read()
 
 
-def write_file(path, content: str):
+def write_file(path: str, content: str) -> None:
     temp_path = path + "~"
     dir_path = os.path.dirname(path)
 
@@ -46,16 +51,12 @@ class CommandError(Exception):
     pass
 
 
-async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
-    create_subprocess_exec_kwargs = dict()
-
-    if use_stdout:
-        create_subprocess_exec_kwargs.update(stdout=PIPE)
-
-    process = await create_subprocess_exec(
-        *cmd, **create_subprocess_exec_kwargs, **kwargs
-    )
+async def command(
+    cmd: list[str], allow_error: bool = False, **kwargs: Any
+) -> CommandResult:
+    process = await create_subprocess_exec(*cmd, **kwargs)
     out, _ = await process.communicate()
+    assert process.returncode is not None
     res = CommandResult(process.returncode, out)
 
     if not allow_error and res.code:
@@ -64,17 +65,17 @@ async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
     return res
 
 
-async def command_lines(cmd, **kwargs):
-    result = command(cmd, use_stdout=True, **kwargs)
+async def command_lines(cmd: list[str], **kwargs: Any) -> list[str]:
+    result = command(cmd, stdout=PIPE, **kwargs)
 
     return (await result).out.decode().splitlines()
 
 
-async def join_thread(thread):
-    loop = asyncio.get_running_loop()
-    future = asyncio.Future()
+async def join_thread(thread: threading.Thread) -> None:
+    loop = get_running_loop()
+    future: Future[None] = Future()
 
-    def target():
+    def target() -> None:
         thread.join()
         loop.call_soon_threadsafe(future.set_result, None)
 
@@ -101,24 +102,26 @@ def remove_directory_really(path: Path) -> None:
         raise last_exception
 
 
-class _Monitor(fswatch.Monitor):
-    def start(self):
+class _Monitor(fswatch.Monitor):  # type: ignore
+    def start(self) -> None:
         fswatch.libfswatch.fsw_start_monitor(self.handle)
 
-    def stop(self):
+    def stop(self) -> None:
         fswatch.libfswatch.fsw_stop_monitor(self.handle)
 
 
 @asynccontextmanager
-async def dir_watcher(dir_path):
-    loop = asyncio.get_running_loop()
+async def dir_watcher(dir_path: str) -> AsyncIterator[Callable[[], Awaitable[None]]]:
+    loop = get_running_loop()
     event = Event()
 
-    async def watcher_fn():
+    async def watcher_fn() -> None:
         await event.wait()
         event.clear()
 
-    def monitor_callback(path, evt_time, flags, flags_num, event_num):
+    def monitor_callback(
+        path: str, evt_time: int, flags: object, flags_num: int, event_num: int
+    ) -> None:
         loop.call_soon_threadsafe(event.set)
 
     monitor = _Monitor()
