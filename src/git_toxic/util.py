@@ -1,11 +1,14 @@
 import asyncio
+import logging
 import os
 import shlex
+import shutil
 import threading
 from asyncio import Event
 from asyncio import create_subprocess_exec
 from asyncio.subprocess import PIPE
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import fswatch.libfswatch
 
@@ -39,6 +42,10 @@ class CommandResult:
         self.out = out
 
 
+class CommandError(Exception):
+    pass
+
+
 async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
     create_subprocess_exec_kwargs = dict()
 
@@ -52,7 +59,7 @@ async def command(cmd, use_stdout=False, allow_error=False, **kwargs):
     res = CommandResult(process.returncode, out)
 
     if not allow_error and res.code:
-        raise Exception(f"Command failed: ${shlex.join(cmd)}")
+        raise CommandError(f"Command failed: {shlex.join(cmd)}")
 
     return res
 
@@ -74,6 +81,24 @@ async def join_thread(thread):
     threading.Thread(target=target, daemon=True).start()
 
     await future
+
+
+def remove_directory_really(path: Path) -> None:
+    if not path.exists():
+        return
+
+    last_exception: Exception
+
+    for _ in range(5):
+        try:
+            shutil.rmtree(path)
+        except OSError as e:
+            last_exception = e
+            logging.warning(f"warning: While deleting directory at {path}: {e}")
+        else:
+            break
+    else:
+        raise last_exception
 
 
 class _Monitor(fswatch.Monitor):
