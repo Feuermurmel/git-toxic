@@ -68,10 +68,8 @@ class Repository:
         Path(dir).mkdir(parents=True, exist_ok=True)
 
         await command(["git", "init"], cwd=dir)
-        await command(
-            ["git", "fetch", "-f", self.path, "*:refs/remotes/origin/*"], cwd=dir
-        )
-        await command(["git", "checkout", "-f", commit_id], cwd=dir)
+        await command(["git", "fetch", "-n", self.path, commit_id], cwd=dir)
+        await command(["git", "checkout", "-fq", commit_id], cwd=dir)
         await command(["git", "clean", "-df"], cwd=dir)
 
     @classmethod
